@@ -65,16 +65,50 @@ def health():
 @click.option("--size", "-s", default="M", show_default=True,
               help="Rozmiar: XS | S | M | L | XL")
 def new_product(name, product_type, size):
-    """Tworzy nowy produkt przez pipeline (TrendAgent + ListingAgent).
+    """Tworzy nowy produkt przez pelny pipeline (listing + SVG + STL).
 
-    NAME to temat produktu (opcjonalne – jeśli pominięty, TrendAgent dobierze temat).
+    NAME to temat produktu (opcjonalne - jesli pominienty, TrendAgent dobierze temat).
     """
     from src.pipeline.orchestrator import run_pipeline
 
     try:
-        run_pipeline(topic=name, product_type=product_type, size=size)
+        result = run_pipeline(topic=name, product_type=product_type, size=size)
     except Exception as e:
-        console.print(f"[bold red]Błąd pipeline:[/bold red] {e}")
+        console.print(f"[bold red]Blad pipeline:[/bold red] {e}")
+        sys.exit(1)
+
+    slug   = result.get("slug", "?")
+    status = result.get("status", "unknown")
+    base   = DATA_DIR / slug
+
+    # -- listing
+    listing_path = base / "listing.json"
+    if listing_path.exists():
+        console.print(f"  [green]✓[/green] Listing:  {listing_path}")
+    else:
+        console.print(f"  [yellow]![/yellow] Listing:  brak")
+
+    # -- SVG
+    source_dir = base / "source"
+    svg_files  = list(source_dir.glob("*.svg")) if source_dir.exists() else []
+    if svg_files:
+        console.print(f"  [green]✓[/green] SVG:      {source_dir} ({len(svg_files)} pliki)")
+    else:
+        console.print(f"  [yellow]![/yellow] SVG:      brak plikow w {source_dir}")
+
+    # -- STL
+    models_dir = base / "models"
+    stl_files  = list(models_dir.glob("*.stl")) if models_dir.exists() else []
+    if stl_files:
+        console.print(f"  [green]✓[/green] STL:      {models_dir} ({len(stl_files)} pliki)")
+    else:
+        console.print(f"  [yellow]![/yellow] STL:      brak plikow w {models_dir}")
+
+    # -- status
+    status_color = "green" if status == "ready_for_render" else "yellow"
+    console.print(f"  Status:   [{status_color}]{status}[/{status_color}]")
+
+    if status != "ready_for_render":
         sys.exit(1)
 
 

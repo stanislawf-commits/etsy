@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="75.0mm" version="1.1" viewBox="0 0 75.0 75.0" width="75.0mm">
+  <defs/>
+  <rect fill="white" height="75.0mm" width="75.0mm" x="0" y="0"/>
+  <path d="M 55.44,37.50 A 5.52,5.52 0 1 1 55.43,37.50 Z M 50.19,50.19 A 5.52,5.52 0 1 1 50.18,50.19 Z M 37.50,55.44 A 5.52,5.52 0 1 1 37.49,55.44 Z M 24.81,50.19 A 5.52,5.52 0 1 1 24.80,50.19 Z M 19.56,37.50 A 5.52,5.52 0 1 1 19.55,37.50 Z M 24.81,24.81 A 5.52,5.52 0 1 1 24.80,24.81 Z M 37.50,19.56 A 5.52,5.52 0 1 1 37.49,19.56 Z M 50.19,24.81 A 5.52,5.52 0 1 1 50.18,24.81 Z M 44.40,37.50 A 6.90,6.90 0 1 1 44.39,37.50 Z" fill="#2d2d2d" stroke="#1a1a1a" stroke-width="1.25mm"/>
+  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="37.5mm" y="72.0mm">botanical leaf | STAMP | M</text>
+</svg>

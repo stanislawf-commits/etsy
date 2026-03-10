@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="60.0mm" version="1.1" viewBox="0 0 60.0 60.0" width="60.0mm">
+  <defs/>
+  <rect fill="white" height="60.0mm" width="60.0mm" x="0" y="0"/>
+  <path d="M 30.00,30.00 C 26.03,14.27 15.43,19.51 16.75,30.00 C 15.43,33.15 26.03,35.24 30.00,30.00 C 33.97,35.24 44.57,33.15 43.25,30.00 C 44.57,19.51 33.97,14.27 30.00,30.00 Z" fill="#2d2d2d" stroke="#1a1a1a" stroke-width="1.25mm"/>
+  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="30.0mm" y="57.599999999999994mm">butterfly | STAMP | S</text>
+</svg>

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="90.0mm" version="1.1" viewBox="0 0 90.0 90.0" width="90.0mm">
+  <defs/>
+  <rect fill="white" height="90.0mm" width="90.0mm" x="0" y="0"/>
+  <path d="M 64.04,45.00 L 53.80,47.36 L 61.49,54.52 L 51.44,51.44 L 54.52,61.49 L 47.36,53.80 L 45.00,64.04 L 42.64,53.80 L 35.48,61.49 L 38.56,51.44 L 28.51,54.52 L 36.20,47.36 L 25.96,45.00 L 36.20,42.64 L 28.51,35.48 L 38.56,38.56 L 35.48,28.51 L 42.64,36.20 L 45.00,25.96 L 47.36,36.20 L 54.52,28.51 L 51.44,38.56 L 61.49,35.48 L 53.80,42.64 Z" fill="#2d2d2d" stroke="#1a1a1a" stroke-width="1.25mm"/>
+  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="45.0mm" y="86.39999999999999mm">boho sun | STAMP | L</text>
+</svg>

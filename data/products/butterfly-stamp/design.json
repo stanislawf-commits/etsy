@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "slug": "butterfly-stamp",
+  "topic": "butterfly",
+  "product_type": "stamp",
+  "mode": "mock",
+  "files": [
+    {
+      "size": "S",
+      "path": "data/products/butterfly-stamp/source/butterfly-stamp-S.svg",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "butterfly"
+    },
+    {
+      "size": "M",
+      "path": "data/products/butterfly-stamp/source/butterfly-stamp-M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "butterfly"
+    },
+    {
+      "size": "L",
+      "path": "data/products/butterfly-stamp/source/butterfly-stamp-L.svg",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "butterfly"
+    }
+  ]
+}

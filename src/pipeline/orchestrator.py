@@ -15,6 +15,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 from src.agents import trend_agent, listing_agent
+from src.agents.design_agent import create_design_agent
+from src.agents.model_agent import create_model_agent
 
 log = logging.getLogger(__name__)
 console = Console()
@@ -77,24 +79,93 @@ def run_pipeline(
     meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     log.info("Saved meta.json → %s", meta_file)
 
-    # ── 4. Podsumowanie w konsoli ────────────────────────────────────────────
+    # ── 4. Design (SVG) ──────────────────────────────────────────────────────
+    design_result = {"success": False, "files": [], "mode": "skipped"}
+    model_result  = {"sizes": {}}
+    stl_files: list[str] = []
+
+    with console.status("[bold green]Generuję SVG (DesignAgent)...[/bold green]"):
+        try:
+            design_agent = create_design_agent("auto")
+            design_result = design_agent.generate(
+                topic=topic,
+                product_type=product_type,
+                sizes=["S", "M", "L"],
+                output_dir=DATA_DIR,
+                slug=slug,
+            )
+            log.info("DesignAgent: success=%s mode=%s files=%d",
+                     design_result.get("success"), design_result.get("mode"),
+                     len(design_result.get("files", [])))
+        except Exception as exc:
+            log.warning("DesignAgent failed: %s", exc)
+            design_result = {"success": False, "files": [], "mode": "error", "error": str(exc)}
+
+    # ── 5. Model (STL) ────────────────────────────────────────────────────────
+    if design_result.get("success") and design_result.get("files"):
+        with console.status("[bold green]Generuję STL (ModelAgent)...[/bold green]"):
+            try:
+                source_dir = Path(design_result["files"][0]["path"]).parent
+                models_dir = product_dir / "models"
+                model_agent = create_model_agent("auto")
+                model_result = model_agent.generate_all(
+                    slug=slug,
+                    product_type=product_type,
+                    source_dir=source_dir,
+                    output_dir=models_dir,
+                )
+                stl_files = [
+                    str(v["stl_path"])
+                    for v in model_result.get("sizes", {}).values()
+                    if v.get("valid") and v.get("stl_path")
+                ]
+                log.info("ModelAgent: sizes=%s  stl_files=%d",
+                         list(model_result["sizes"].keys()), len(stl_files))
+            except Exception as exc:
+                log.warning("ModelAgent failed: %s", exc)
+                model_result = {"sizes": {}, "error": str(exc)}
+
+    # ── 6. Aktualizacja meta.json ─────────────────────────────────────────────
+    models_ok  = len(stl_files) > 0
+    design_ok  = design_result.get("success", False)
+    pipeline_status = "ready_for_render" if (design_ok and models_ok) else (
+                      "design_error" if not design_ok else "model_error")
+
+    meta["design"] = {"mode": design_result.get("mode"), "success": design_ok}
+    meta["models"] = {
+        "success": models_ok,
+        "sizes": list(model_result.get("sizes", {}).keys()),
+        "stl_count": len(stl_files),
+    }
+    meta["status"] = pipeline_status
+    meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    log.info("Updated meta.json → status=%s", pipeline_status)
+
+    # ── 7. Podsumowanie w konsoli ─────────────────────────────────────────────
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("Klucz", style="dim", min_width=16)
     table.add_column("Wartość")
 
-    table.add_row("Slug", f"[bold]{slug}[/bold]")
-    table.add_row("Tytuł", listing.get("title", "–"))
-    table.add_row("Cena", f"[green]{listing.get('price_suggestion', '–')} EUR[/green]")
-    table.add_row("Tagów", str(len(listing.get("tags", []))))
-    table.add_row("Status", "[yellow]draft[/yellow]")
-    table.add_row("Pliki", f"{listing_file}\n{meta_file}")
+    table.add_row("Slug",    f"[bold]{slug}[/bold]")
+    table.add_row("Tytuł",   listing.get("title", "–"))
+    table.add_row("Cena",    f"[green]{listing.get('price_suggestion', '–')} EUR[/green]")
+    table.add_row("Tagów",   str(len(listing.get("tags", []))))
+    svg_count = len(design_result.get("files", []))
+    table.add_row("SVG",     f"[{'green' if design_ok else 'red'}]{svg_count} plików[/]"
+                             f"  (mode: {design_result.get('mode', '?')})")
+    table.add_row("STL",     f"[{'green' if models_ok else 'red'}]{len(stl_files)} plików[/]")
+    status_color = "green" if pipeline_status == "ready_for_render" else "yellow"
+    table.add_row("Status",  f"[{status_color}]{pipeline_status}[/{status_color}]")
 
     console.print(Panel(table, title="[bold green]Pipeline zakończony[/bold green]", expand=False))
 
     return {
-        "slug": slug,
-        "title": listing.get("title"),
+        "slug":             slug,
+        "title":            listing.get("title"),
         "price_suggestion": listing.get("price_suggestion"),
-        "tags": listing.get("tags", []),
-        "status": "draft",
+        "tags":             listing.get("tags", []),
+        "status":           pipeline_status,
+        "design":           design_result,
+        "models":           model_result,
+        "stl_files":        stl_files,
     }

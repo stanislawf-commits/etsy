@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "slug": "boho-sun-stamp",
+  "topic": "boho sun",
+  "product_type": "stamp",
+  "mode": "mock",
+  "files": [
+    {
+      "size": "S",
+      "path": "data/products/boho-sun-stamp/source/boho-sun-stamp-S.svg",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "sun"
+    },
+    {
+      "size": "M",
+      "path": "data/products/boho-sun-stamp/source/boho-sun-stamp-M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "sun"
+    },
+    {
+      "size": "L",
+      "path": "data/products/boho-sun-stamp/source/boho-sun-stamp-L.svg",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "sun"
+    }
+  ]
+}

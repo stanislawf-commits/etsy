@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="90.0mm" version="1.1" viewBox="0 0 90.0 90.0" width="90.0mm">
+  <defs/>
+  <rect fill="white" height="90.0mm" width="90.0mm" x="0" y="0"/>
+  <path d="M 62.21,54.94 L 45.00,64.87 L 27.79,54.94 L 27.79,35.06 L 45.00,25.13 L 62.21,35.06 Z" fill="none" stroke="#1a1a1a" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5mm"/>
+  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="45.0mm" y="86.39999999999999mm">geometric hexagon | CUTTER | L</text>
+</svg>

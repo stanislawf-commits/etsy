@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "slug": "mountain-climbing-cutter",
+  "topic": "mountain climbing",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "M",
+      "path": "data/products/mountain-climbing-cutter/source/mountain-climbing-cutter-M.svg",
+      "png_path": "data/products/mountain-climbing-cutter/source/mountain-climbing-cutter-M_dalle_raw.png",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "dalle3_generated"
+    }
+  ]
+}

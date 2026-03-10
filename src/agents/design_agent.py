@@ -490,23 +490,34 @@ def _make_svg_dalle3(
         png_path.write_bytes(resp.content)
         log.info("Saved DALL-E PNG: %s (%d B)", png_path, len(resp.content))
 
-        # Wrapper SVG z osadzonym obrazem (do podgladem)
-        size_str = f"{size_mm}mm"
+        # SVG z osadzonym obrazem DALL-E + wektorowa sciezka mock (do parsowania przez ModelAgent)
+        shape_key = _detect_shape(topic)
+        builder   = SHAPE_BUILDERS[shape_key]
+        cx, cy    = size_mm / 2, size_mm / 2
+        path_d    = builder(cx, cy, size_mm * 0.46)
+        size_str  = f"{size_mm}mm"
+        stroke_w  = f"{WALL_MM}mm" if product_type == "cutter" else f"{WALL_MM * 0.5}mm"
+        fill_attr = 'fill="none"' if product_type == "cutter" else 'fill="#2d2d2d"'
         svg_content = (
             f'''<?xml version="1.0" encoding="utf-8"?>\n'''
             f'''<svg xmlns="http://www.w3.org/2000/svg" '''
             f'''xmlns:xlink="http://www.w3.org/1999/xlink" '''
             f'''width="{size_str}" height="{size_str}" '''
             f'''viewBox="0 0 {size_mm} {size_mm}">\n'''
+            f'''  <!-- DALL-E 3 preview -->\n'''
             f'''  <image href="{png_path.name}" x="0" y="0" '''
-            f'''width="{size_mm}" height="{size_mm}"/>\n'''
+            f'''width="{size_mm}" height="{size_mm}" opacity="0.35"/>\n'''
+            f'''  <!-- vector outline for 3D model -->\n'''
+            f'''  <path d="{path_d}" {fill_attr} '''
+            f'''stroke="#1a1a1a" stroke-width="{stroke_w}"'''
+            f''' stroke-linejoin="round" stroke-linecap="round"/>\n'''
             f'''  <text x="{size_mm/2}" y="{size_mm*0.97}" '''
             f'''text-anchor="middle" font-size="3px" fill="#888">'''
             f'''{topic} | DALL-E 3 | {size}</text>\n'''
             f'''</svg>\n'''
         )
         out_path.write_text(svg_content, encoding="utf-8")
-        log.info("Saved dalle3 SVG wrapper: %s", out_path)
+        log.info("Saved dalle3 SVG (DALL-E preview + mock path): %s", out_path)
 
         return {
             "size": size,
@@ -540,6 +551,7 @@ class DesignAgent:
         product_type: str = "cutter",
         sizes: list[str] | None = None,
         output_dir: Path | None = None,
+        slug: str | None = None,
     ) -> dict:
         """
         Generuje pliki SVG dla każdego rozmiaru.
@@ -566,7 +578,7 @@ class DesignAgent:
         if output_dir is None:
             output_dir = DATA_DIR
 
-        slug = _slugify(f"{topic}-{product_type}")
+        slug = slug or _slugify(f"{topic}-{product_type}")
         source_dir = Path(output_dir) / slug / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
 

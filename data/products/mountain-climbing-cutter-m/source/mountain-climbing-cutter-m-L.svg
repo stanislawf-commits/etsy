@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="90.0mm" height="90.0mm" viewBox="0 0 90.0 90.0">
+  <!-- DALL-E 3 preview -->
+  <image href="mountain-climbing-cutter-m-L_dalle_raw.png" x="0" y="0" width="90.0" height="90.0" opacity="0.35"/>
+  <!-- vector outline for 3D model -->
+  <path d="M 25.96,63.22 L 27.48,63.22 L 36.62,35.89 L 46.90,63.22 L 64.04,63.22 L 45.00,26.78 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="45.0" y="87.3" text-anchor="middle" font-size="3px" fill="#888">mountain climbing | DALL-E 3 | L</text>
+</svg>
