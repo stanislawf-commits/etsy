@@ -64,60 +64,178 @@ def health():
               help="Typ produktu: cutter | stamp | set")
 @click.option("--size", "-s", default="M", show_default=True,
               help="Rozmiar: XS | S | M | L | XL")
-def new_product(name, product_type, size):
+@click.option("--batch", "-b", default=1, type=click.IntRange(1, 50), show_default=True,
+              help="Uruchom pipeline N razy (TrendAgent dobiera tematy automatycznie)")
+def new_product(name, product_type, size, batch):
     """Tworzy nowy produkt przez pelny pipeline (listing + SVG + STL).
 
     NAME to temat produktu (opcjonalne - jesli pominienty, TrendAgent dobierze temat).
+    Z opcja --batch N uruchamia pipeline N razy bez podawania NAME.
     """
     from src.pipeline.orchestrator import run_pipeline
 
-    try:
-        result = run_pipeline(topic=name, product_type=product_type, size=size)
-    except Exception as e:
-        console.print(f"[bold red]Blad pipeline:[/bold red] {e}")
+    if batch > 1 and name:
+        console.print("[red]Błąd: --batch nie może być użyty razem z NAME.[/red]")
+        console.print("Usuń NAME lub pomiń --batch.")
         sys.exit(1)
 
-    slug   = result.get("slug", "?")
-    status = result.get("status", "unknown")
-    base   = DATA_DIR / slug
+    if batch == 1:
+        # ── Tryb pojedynczy (istniejące zachowanie) ──
+        try:
+            result = run_pipeline(topic=name, product_type=product_type, size=size)
+        except Exception as e:
+            console.print(f"[bold red]Blad pipeline:[/bold red] {e}")
+            sys.exit(1)
 
-    # -- listing
-    listing_path = base / "listing.json"
-    if listing_path.exists():
-        console.print(f"  [green]✓[/green] Listing:  {listing_path}")
+        slug   = result.get("slug", "?")
+        status = result.get("status", "unknown")
+        base   = DATA_DIR / slug
+
+        listing_path = base / "listing.json"
+        if listing_path.exists():
+            console.print(f"  [green]✓[/green] Listing:  {listing_path}")
+        else:
+            console.print(f"  [yellow]![/yellow] Listing:  brak")
+
+        source_dir = base / "source"
+        svg_files  = list(source_dir.glob("*.svg")) if source_dir.exists() else []
+        if svg_files:
+            console.print(f"  [green]✓[/green] SVG:      {source_dir} ({len(svg_files)} pliki)")
+        else:
+            console.print(f"  [yellow]![/yellow] SVG:      brak plikow w {source_dir}")
+
+        models_dir = base / "models"
+        stl_files  = list(models_dir.glob("*.stl")) if models_dir.exists() else []
+        if stl_files:
+            console.print(f"  [green]✓[/green] STL:      {models_dir} ({len(stl_files)} pliki)")
+        else:
+            console.print(f"  [yellow]![/yellow] STL:      brak plikow w {models_dir}")
+
+        renders_dir  = base / "renders"
+        render_files = list(renders_dir.glob("*.jpg")) if renders_dir.exists() else []
+        if render_files:
+            console.print(f"  [green]✓[/green] Renders:  {renders_dir} ({len(render_files)} pliki)")
+        else:
+            console.print(f"  [yellow]![/yellow] Renders:  brak plikow w {renders_dir}")
+
+        status_color = "green" if status in ("ready_for_publish", "ready_for_render") else "yellow"
+        console.print(f"  Status:   [{status_color}]{status}[/{status_color}]")
+
+        if status not in ("ready_for_render", "ready_for_publish"):
+            sys.exit(1)
+
     else:
-        console.print(f"  [yellow]![/yellow] Listing:  brak")
+        # ── Tryb batch ──
+        results = []
+        for i in range(batch):
+            console.rule(f"[bold]Produkt {i + 1}/{batch}[/bold]")
+            try:
+                r = run_pipeline(topic=None, product_type=product_type, size=size)
+                results.append(r)
+            except Exception as e:
+                console.print(f"[red]Produkt {i + 1} zakończony błędem: {e}[/red]")
+                results.append({"slug": "?", "status": "error", "error": str(e)})
 
-    # -- SVG
-    source_dir = base / "source"
-    svg_files  = list(source_dir.glob("*.svg")) if source_dir.exists() else []
-    if svg_files:
-        console.print(f"  [green]✓[/green] SVG:      {source_dir} ({len(svg_files)} pliki)")
-    else:
-        console.print(f"  [yellow]![/yellow] SVG:      brak plikow w {source_dir}")
+        _print_batch_summary(results)
 
-    # -- STL
-    models_dir = base / "models"
-    stl_files  = list(models_dir.glob("*.stl")) if models_dir.exists() else []
-    if stl_files:
-        console.print(f"  [green]✓[/green] STL:      {models_dir} ({len(stl_files)} pliki)")
-    else:
-        console.print(f"  [yellow]![/yellow] STL:      brak plikow w {models_dir}")
 
-    # -- renders
-    renders_dir  = base / "renders"
-    render_files = list(renders_dir.glob("*.jpg")) if renders_dir.exists() else []
-    if render_files:
-        console.print(f"  [green]✓[/green] Renders:  {renders_dir} ({len(render_files)} pliki)")
-    else:
-        console.print(f"  [yellow]![/yellow] Renders:  brak plikow w {renders_dir}")
+def _print_batch_summary(results: list[dict]) -> None:
+    """Wypisuje tabelę podsumowania po uruchomieniu --batch."""
+    table = Table(title="Batch — podsumowanie", show_header=True, header_style="bold cyan")
+    table.add_column("#",      justify="right", style="dim", width=3)
+    table.add_column("Slug",   style="dim")
+    table.add_column("Temat")
+    table.add_column("Status")
+    table.add_column("Cena",   justify="right")
+    table.add_column("Błąd",   style="red")
 
-    # -- status
-    status_color = "green" if status in ("ready_for_publish", "ready_for_render") else "yellow"
-    console.print(f"  Status:   [{status_color}]{status}[/{status_color}]")
+    ok = 0
+    for i, r in enumerate(results, 1):
+        status_val = r.get("status", "error")
+        color = "green" if status_val == "ready_for_publish" else \
+                "cyan"  if status_val == "ready_for_render"  else "red"
+        price = r.get("price_suggestion") or r.get("price") or "–"
+        price_str = f"{price} EUR" if price != "–" else "–"
+        table.add_row(
+            str(i),
+            r.get("slug", "?"),
+            (r.get("title") or "")[:45],
+            f"[{color}]{status_val}[/{color}]",
+            price_str,
+            r.get("error", "") or "",
+        )
+        if status_val not in ("error",):
+            ok += 1
 
-    if status not in ("ready_for_render", "ready_for_publish"):
+    console.print(table)
+    console.print(f"\n  Ukończono: [bold green]{ok}[/bold green] / {len(results)}")
+
+
+@cli.command("analytics-sync")
+@click.option("--slug", default=None, help="Synchronizuj tylko ten produkt (domyślnie: wszystkie listed)")
+def analytics_sync(slug):
+    """Pobiera views + favorites z Etsy API i zapisuje do DB."""
+    import os
+    from src.db.session import init_db, get_session
+    from src.db.models import Product, ListingStats
+    from src.utils.etsy_analytics import fetch_listing_stats
+    from sqlmodel import select
+
+    access_token = os.getenv("ETSY_ACCESS_TOKEN", "")
+    shop_id      = os.getenv("ETSY_SHOP_ID", "")
+
+    if not access_token:
+        console.print("[bold red]Brak ETSY_ACCESS_TOKEN.[/bold red] Uruchom: [cyan]python cli.py etsy-auth[/cyan]")
         sys.exit(1)
+    if not shop_id:
+        console.print("[bold red]Brak ETSY_SHOP_ID w .env.[/bold red]")
+        sys.exit(1)
+
+    init_db()
+
+    with get_session() as session:
+        query = select(Product).where(Product.etsy_listing_id.isnot(None))
+        if slug:
+            query = query.where(Product.slug == slug)
+        products = session.exec(query).all()
+        product_data = [(p.slug, p.etsy_listing_id) for p in products]
+
+    if not product_data:
+        console.print("[dim]Brak opublikowanych produktów z etsy_listing_id.[/dim]")
+        return
+
+    table = Table(title="Analytics sync", show_header=True, header_style="bold cyan")
+    table.add_column("Slug",       style="dim")
+    table.add_column("Listing ID", style="dim")
+    table.add_column("Views",      justify="right")
+    table.add_column("Favorites",  justify="right")
+    table.add_column("Status")
+
+    synced = 0
+    for p_slug, listing_id in product_data:
+        try:
+            with console.status(f"[dim]Pobieram stats dla {p_slug}...[/dim]"):
+                stats_data = fetch_listing_stats(
+                    listing_id,
+                    shop_id=shop_id,
+                    access_token=access_token,
+                )
+            with get_session() as session:
+                session.add(ListingStats(
+                    slug=p_slug,
+                    listing_id=listing_id,
+                    views=stats_data["views"],
+                    favorites=stats_data["favorites"],
+                ))
+            table.add_row(p_slug, listing_id,
+                          str(stats_data["views"]), str(stats_data["favorites"]),
+                          "[green]OK[/green]")
+            synced += 1
+        except Exception as exc:
+            table.add_row(p_slug, listing_id, "–", "–", f"[red]{exc}[/red]")
+
+    console.print(table)
+    console.print(f"\n  Zsynchronizowano: [bold green]{synced}[/bold green] / {len(product_data)}")
 
 
 @cli.command()
@@ -470,6 +588,44 @@ def stats():
     console.print(f"  Potencjalny przychód:  [bold cyan]{total_revenue:.2f} EUR[/bold cyan]")
     console.print(f"  Blender renders:       {blender_count}/{total}")
     console.print()
+
+    # ── Analytics (ostatnia synchronizacja) ──
+    try:
+        from src.db.models import ListingStats
+        from sqlmodel import select as sa_select
+
+        with get_session() as session:
+            all_stats = [
+                s.model_dump()
+                for s in session.exec(
+                    sa_select(ListingStats).order_by(ListingStats.fetched_at.desc())
+                ).all()
+            ]
+
+        # Najnowszy wiersz per slug
+        seen: set[str] = set()
+        top: list[dict] = []
+        for s in all_stats:
+            if s["slug"] not in seen:
+                seen.add(s["slug"])
+                top.append(s)
+
+        if top:
+            an_table = Table(title="Analytics (ostatnia synchronizacja)", show_header=True,
+                             header_style="bold cyan")
+            an_table.add_column("Slug",      style="dim")
+            an_table.add_column("Views",     justify="right")
+            an_table.add_column("Favorites", justify="right")
+            an_table.add_column("Pobrano",   style="dim")
+            for s in sorted(top, key=lambda x: x["views"], reverse=True):
+                fetched = str(s["fetched_at"])[:16]
+                an_table.add_row(s["slug"], str(s["views"]), str(s["favorites"]), fetched)
+            console.print(an_table)
+        else:
+            console.print("[dim]Brak danych analytics. Uruchom: python cli.py analytics-sync[/dim]")
+            console.print()
+    except Exception:
+        pass  # ListingStats tabela może nie istnieć w starej DB — ignoruj
 
 
 @cli.command("db-migrate")

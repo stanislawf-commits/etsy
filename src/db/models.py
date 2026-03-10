@@ -2,8 +2,9 @@
 models.py — tabele SQLite (SQLModel).
 
 Tabele:
-    Product     — główna encja produktu (slug jako PK)
-    RenderJob   — historia renderów i czas wykonania
+    Product      — główna encja produktu (slug jako PK)
+    RenderJob    — historia renderów i czas wykonania
+    ListingStats — append-only time-series views/favorites z Etsy API
 """
 from datetime import datetime, timezone
 from typing import Optional
@@ -60,5 +61,18 @@ class RenderJob(SQLModel, table=True):
     duration_s:   Optional[float]= Field(default=None)
     error:        Optional[str]  = Field(default=None)
     created_at:   datetime       = Field(
+        default_factory=lambda: datetime.now(timezone.utc)
+    )
+
+
+class ListingStats(SQLModel, table=True):
+    """Append-only time-series statystyk Etsy (views + favorites) per listing."""
+
+    id:           Optional[int]  = Field(default=None, primary_key=True)
+    slug:         str            = Field(index=True, foreign_key="product.slug")
+    listing_id:   str            = Field(index=True)
+    views:        int            = Field(default=0)
+    favorites:    int            = Field(default=0)
+    fetched_at:   datetime       = Field(
         default_factory=lambda: datetime.now(timezone.utc)
     )

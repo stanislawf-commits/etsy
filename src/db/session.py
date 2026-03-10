@@ -37,7 +37,7 @@ def get_engine():
 
 def init_db() -> None:
     """Tworzy wszystkie tabele jeśli nie istnieją. Idempotentne."""
-    from src.db.models import Product, RenderJob  # noqa: F401 — rejestracja tabel
+    from src.db.models import Product, RenderJob, ListingStats  # noqa: F401 — rejestracja tabel
     SQLModel.metadata.create_all(get_engine())
     log.info("DB initialized: %s", DB_PATH)
 
