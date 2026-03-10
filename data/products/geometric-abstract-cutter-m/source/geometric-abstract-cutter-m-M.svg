@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="75.0mm" height="75.0mm" viewBox="0 0 75.0 75.0">
+  <!-- DALL-E 3 preview -->
+  <image href="geometric-abstract-cutter-m-M_dalle_raw.png" x="0" y="0" width="75.0" height="75.0" opacity="0.35"/>
+  <!-- vector outline for 3D model -->
+  <path d="M 51.84,45.78 L 37.50,54.06 L 23.16,45.78 L 23.16,29.22 L 37.50,20.94 L 51.84,29.22 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="37.5" y="72.75" text-anchor="middle" font-size="3px" fill="#888">geometric abstract | DALL-E 3 | M</text>
+</svg>

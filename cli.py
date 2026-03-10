@@ -153,42 +153,133 @@ def status(slug):
 def list_products(status_filter):
     """Listuje wszystkie produkty w pipeline."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    files = list(DATA_DIR.glob("*.json"))
 
-    if not files:
+    # Szukaj meta.json w podfolderach (nowy format) oraz *.json wprost (stary)
+    meta_files = sorted(DATA_DIR.glob("*/meta.json"))
+    flat_files  = [f for f in sorted(DATA_DIR.glob("*.json"))
+                   if not (DATA_DIR / f.stem).is_dir()]
+    all_files   = meta_files + flat_files
+
+    if not all_files:
         console.print("[dim]Brak produktow.[/dim]")
         return
 
+    STATUS_COLORS = {
+        "ready_for_publish":       "green",
+        "ready_for_render":        "cyan",
+        "listed":                  "bold green",
+        "ready_for_manual_publish": "cyan",
+        "draft":                   "yellow",
+        "design_error":            "red",
+        "model_error":             "red",
+    }
+
     table = Table(title="Produkty etsy3d", show_header=True, header_style="bold cyan")
     table.add_column("Slug", style="dim")
-    table.add_column("Nazwa")
-    table.add_column("Kategoria")
+    table.add_column("Tytuł")
+    table.add_column("Cena", justify="right")
+    table.add_column("SVG", justify="center")
+    table.add_column("STL", justify="center")
+    table.add_column("Renders", justify="center")
     table.add_column("Status")
-    table.add_column("Kroki")
 
     count = 0
-    for f in sorted(files):
-        data = json.loads(f.read_text())
-        if status_filter and data.get("status") != status_filter:
+    for meta_f in all_files:
+        data = json.loads(meta_f.read_text())
+        prod_status = data.get("status", "draft")
+        if status_filter and prod_status != status_filter:
             continue
-        steps_count = len(data.get("steps_completed", []))
-        status_color = {
-            "draft": "yellow",
-            "ready": "cyan",
-            "published": "green",
-        }.get(data.get("status", "draft"), "white")
 
+        slug     = data.get("slug", meta_f.parent.name)
+        prod_dir = DATA_DIR / slug
+
+        # Tytuł z listing.json
+        title = "–"
+        price = "–"
+        listing_path = prod_dir / "listing.json"
+        if listing_path.exists():
+            try:
+                lst   = json.loads(listing_path.read_text())
+                title = lst.get("title", "–")[:55]
+                price = f"{lst.get('price_suggestion', '–')} EUR"
+            except Exception:
+                pass
+
+        svg_count = len(list((prod_dir / "source").glob("*.svg"))) if (prod_dir / "source").exists() else 0
+        stl_count = len(list((prod_dir / "models").glob("*.stl"))) if (prod_dir / "models").exists() else 0
+        rnd_count = len(list((prod_dir / "renders").glob("*.jpg"))) if (prod_dir / "renders").exists() else 0
+
+        color = STATUS_COLORS.get(prod_status, "white")
         table.add_row(
-            data["slug"],
-            data["name"],
-            data.get("category", "-"),
-            f"[{status_color}]{data.get('status', 'draft')}[/{status_color}]",
-            str(steps_count),
+            slug,
+            title,
+            price,
+            str(svg_count) if svg_count else "[dim]0[/dim]",
+            str(stl_count) if stl_count else "[dim]0[/dim]",
+            str(rnd_count) if rnd_count else "[dim]0[/dim]",
+            f"[{color}]{prod_status}[/{color}]",
         )
         count += 1
 
     console.print(table)
     console.print(f"\nLacznie: [bold]{count}[/bold] produktow")
+
+
+@cli.command("open-product")
+@click.argument("slug")
+def open_product(slug):
+    """Otwiera folder produktu i wypisuje listing_export.json do terminala."""
+    import subprocess
+
+    product_dir = DATA_DIR / slug
+    if not product_dir.exists():
+        console.print(f"[red]Produkt '{slug}' nie istnieje w {DATA_DIR}[/red]")
+        sys.exit(1)
+
+    export_path = product_dir / "listing_export.json"
+
+    # Jeśli brak listing_export.json — wygeneruj dry-run
+    if not export_path.exists():
+        listing_path = product_dir / "listing.json"
+        if not listing_path.exists():
+            console.print(f"[red]Brak listing.json w {product_dir}[/red]")
+            sys.exit(1)
+        from src.agents.etsy_agent import create_etsy_agent
+        agent = create_etsy_agent()
+        agent.publish(product_dir=product_dir, slug=slug)
+
+    # Odczytaj eksport
+    try:
+        data = json.loads(export_path.read_text())
+    except Exception as exc:
+        console.print(f"[red]Błąd odczytu listing_export.json: {exc}[/red]")
+        sys.exit(1)
+
+    checklist = data.get("manual_publish_checklist", {})
+    renders_path = checklist.get("renders_path", str(product_dir / "renders"))
+    tags = data.get("tags", [])
+
+    console.print()
+    console.print("[bold cyan]=== LISTING READY TO PUBLISH ===[/bold cyan]")
+    console.print(f"  [bold]Tytuł:[/bold]  {data.get('title', '–')}")
+    console.print(f"  [bold]Cena:[/bold]   [green]{data.get('price', '–')} EUR[/green]")
+    console.print(f"  [bold]Tagi:[/bold]   {', '.join(tags)}")
+    console.print()
+    console.print("  [bold]Renders[/bold] (uploaduj w tej kolejności):")
+    for i, name in enumerate(["hero.jpg", "lifestyle.jpg", "sizes.jpg", "detail.jpg", "info.jpg"], 1):
+        exists = (product_dir / "renders" / name).exists()
+        mark   = "[green]✓[/green]" if exists else "[red]✗[/red]"
+        console.print(f"    {mark} {i}. renders/{name}")
+    console.print()
+    console.print(f"  [bold]Pełny eksport:[/bold] [dim]{export_path.resolve()}[/dim]")
+    console.print()
+
+    # Otwórz folder w menedżerze plików
+    try:
+        subprocess.Popen(["xdg-open", str(product_dir.resolve())])
+        console.print(f"[dim]Otwarto folder: {product_dir.resolve()}[/dim]")
+    except Exception as exc:
+        console.print(f"[dim yellow]Nie można otworzyć menedżera plików: {exc}[/dim yellow]")
 
 
 @cli.command("etsy-auth")

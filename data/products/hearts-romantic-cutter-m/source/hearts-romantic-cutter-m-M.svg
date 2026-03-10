@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="75.0mm" height="75.0mm" viewBox="0 0 75.0 75.0">
+  <!-- DALL-E 3 preview -->
+  <image href="hearts-romantic-cutter-m-M_dalle_raw.png" x="0" y="0" width="75.0" height="75.0" opacity="0.35"/>
+  <!-- vector outline for 3D model -->
+  <path d="M 37.50,32.84 C 54.75,18.87 72.00,40.61 37.50,53.02 C 3.00,40.61 20.25,18.87 37.50,32.84 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="37.5" y="72.75" text-anchor="middle" font-size="3px" fill="#888">hearts romantic | DALL-E 3 | M</text>
+</svg>

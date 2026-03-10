@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="75.0mm" height="75.0mm" viewBox="0 0 75.0 75.0">
+  <!-- DALL-E 3 preview -->
+  <image href="celestial-moon-stars-cutter-m-M_dalle_raw.png" x="0" y="0" width="75.0" height="75.0" opacity="0.35"/>
+  <!-- vector outline for 3D model -->
+  <path d="M 37.50,20.25 L 41.76,31.64 L 53.91,32.17 L 44.39,39.74 L 47.64,51.46 L 37.50,44.74 L 27.36,51.46 L 30.61,39.74 L 21.09,32.17 L 33.24,31.64 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="37.5" y="72.75" text-anchor="middle" font-size="3px" fill="#888">celestial moon stars | DALL-E 3 | M</text>
+</svg>

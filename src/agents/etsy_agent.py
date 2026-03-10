@@ -87,6 +87,22 @@ class EtsyAgent:
         export["_slug"]   = slug
         export["_source"] = "listing_export.json (dry-run)"
 
+        renders_path = str(product_dir.resolve() / "renders")
+        price_eur    = export.get("price", "–")
+        export["manual_publish_checklist"] = {
+            "step_1":      "Wejdź na etsy.com/your/listings/create",
+            "step_2":      "Wklej tytuł z pola title",
+            "step_3":      "Wklej opis z pola description",
+            "step_4":      f"Ustaw cenę z pola price_eur ({price_eur}) EUR",
+            "step_5":      "Dodaj tagi z pola tags (max 13)",
+            "step_6":      "Uploaduj zdjęcia z folderu renders/ w kolejności: hero, lifestyle, sizes, detail, info",
+            "step_7":      "Shipping: ustaw profil wysyłki UE",
+            "step_8":      "Kliknij Publish",
+            "renders_path": renders_path,
+            "taxonomy_id": TAXONOMY_ID,
+            "category":    "Cookie Cutters & Stamps",
+        }
+
         export_path = product_dir / "listing_export.json"
         export_path.write_text(json.dumps(export, indent=2, ensure_ascii=False))
         log.info("Dry-run export saved: %s", export_path)

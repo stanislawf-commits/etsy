@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="60.0mm" height="60.0mm" viewBox="0 0 60.0 60.0">
+  <!-- DALL-E 3 preview -->
+  <image href="cottagecore-mushrooms-cutter-m-S_dalle_raw.png" x="0" y="0" width="60.0" height="60.0" opacity="0.35"/>
+  <!-- vector outline for 3D model -->
+  <path d="M 17.86,25.03 A 12.14,12.14 0 0 1 42.14,25.03 Q 42.14,34.97 36.07,34.97 L 36.07,44.35 L 23.93,44.35 L 23.93,34.97 Q 17.86,34.97 17.86,25.03 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
+  <text x="30.0" y="58.199999999999996" text-anchor="middle" font-size="3px" fill="#888">cottagecore mushrooms | DALL-E 3 | S</text>
+</svg>

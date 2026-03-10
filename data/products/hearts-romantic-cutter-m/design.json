@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "slug": "hearts-romantic-cutter-m",
+  "topic": "hearts romantic",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "S",
+      "path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-S.svg",
+      "png_path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-S_dalle_raw.png",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "dalle3_generated"
+    },
+    {
+      "size": "M",
+      "path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-M.svg",
+      "png_path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-M_dalle_raw.png",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "dalle3_generated"
+    },
+    {
+      "size": "L",
+      "path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-L.svg",
+      "png_path": "/home/dell/etsy3d/data/products/hearts-romantic-cutter-m/source/hearts-romantic-cutter-m-L_dalle_raw.png",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "dalle3_generated"
+    }
+  ]
+}

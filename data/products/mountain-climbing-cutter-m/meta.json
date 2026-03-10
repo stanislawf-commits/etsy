@@ -1,11 +1,11 @@
 {
-  "id": "c2ed110f-8ec5-4d48-b6d7-f6da748cbcc9",
+  "id": "4c718e16-e900-49e1-8094-5bf354d9b5bf",
   "slug": "mountain-climbing-cutter-m",
   "topic": "mountain climbing",
   "product_type": "cutter",
   "size": "M",
-  "status": "ready_for_render",
-  "created_at": "2026-03-10T12:55:35.691731+00:00",
+  "status": "ready_for_publish",
+  "created_at": "2026-03-10T14:09:54.593143+00:00",
   "design": {
     "mode": "auto",
     "success": true
@@ -18,5 +18,9 @@
       "L"
     ],
     "stl_count": 3
+  },
+  "renders": {
+    "success": true,
+    "count": 5
   }
 }

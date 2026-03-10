@@ -1,0 +1,33 @@
+{
+  "success": true,
+  "slug": "cottagecore-mushrooms-cutter-m",
+  "topic": "cottagecore mushrooms",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "S",
+      "path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-S.svg",
+      "png_path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-S_dalle_raw.png",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "dalle3_generated"
+    },
+    {
+      "size": "M",
+      "path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-M.svg",
+      "png_path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-M_dalle_raw.png",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "dalle3_generated"
+    },
+    {
+      "size": "L",
+      "path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-L.svg",
+      "png_path": "/home/dell/etsy3d/data/products/cottagecore-mushrooms-cutter-m/source/cottagecore-mushrooms-cutter-m-L_dalle_raw.png",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "dalle3_generated"
+    }
+  ]
+}
