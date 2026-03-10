@@ -1,0 +1,41 @@
+{
+  "generated_at": "2026-03-10T01:45:21.549035",
+  "category": "baking",
+  "suggestions": [
+    {
+      "topic": "floral wreath",
+      "product_type": "cutter",
+      "season": "evergreen",
+      "priority": "high",
+      "reason": "Floral designs are consistently top sellers on Etsy year-round; wreaths appeal to home bakers and gifters alike."
+    },
+    {
+      "topic": "celestial moon and stars",
+      "product_type": "set",
+      "season": "evergreen",
+      "priority": "high",
+      "reason": "Celestial themes are among the fastest-growing niches; moon + stars sets drive higher average order value."
+    },
+    {
+      "topic": "botanical leaf",
+      "product_type": "stamp",
+      "season": "evergreen",
+      "priority": "high",
+      "reason": "Botanical motifs have strong search volume in the baking niche and pair well with cottagecore aesthetics."
+    },
+    {
+      "topic": "cottagecore mushroom",
+      "product_type": "cutter",
+      "season": "evergreen",
+      "priority": "medium",
+      "reason": "Cottagecore is a sustained social-media trend driving strong Etsy search traffic for whimsical baking tools."
+    },
+    {
+      "topic": "boho sun",
+      "product_type": "stamp",
+      "season": "evergreen",
+      "priority": "medium",
+      "reason": "Boho / retro sun motifs are trending in home décor and translate naturally to cookie stamps and clay tools."
+    }
+  ]
+}
