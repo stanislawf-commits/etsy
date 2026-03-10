@@ -1,6 +1,7 @@
 """
-render_agent.py — generuje 5 obrazów produktowych JPG 2000×2000 px (Pillow only).
+render_agent.py — generuje obrazy produktowe JPG (Pillow only).
 
+Parametry (rozmiar, jakość, kolejność) z config/etsy.yaml.
 Nie wymaga GPU, Blendera ani cairosvg. Primary source: DALL-E PNG (*_dalle_raw.png).
 """
 import json
@@ -9,6 +10,8 @@ import random
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont
+
+from src.utils.config_loader import cfg
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +27,16 @@ COLOR_WARM    = "#8B7355"
 COLOR_RED     = "#CC2222"
 COLOR_BISCUIT = "#F0E6D3"
 
-CANVAS = 2000
+def _canvas_size() -> int:
+    return cfg("etsy").get("images", {}).get("size_px", 2000)
+
+def _jpeg_quality() -> int:
+    return cfg("etsy").get("images", {}).get("quality", 92)
+
+def _upload_order() -> list[str]:
+    return cfg("etsy").get("images", {}).get("upload_order", ["hero","lifestyle","sizes","detail","info"])
+
+CANVAS = 2000  # backwards-compat alias, runtime wartość z cfg
 
 FONT_PATHS = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -58,22 +70,30 @@ class RenderAgent:
         render_dir  = product_dir / "renders"
         render_dir.mkdir(parents=True, exist_ok=True)
 
+        canvas_px = _canvas_size()
+        quality   = _jpeg_quality()
+        order     = _upload_order()
+
         img_m  = self._load_product_image(source_dir, slug, "M")
         renders: list[str] = []
 
-        specs = [
-            ("hero",      self._render_hero,      (img_m, slug, topic)),
-            ("lifestyle", self._render_lifestyle, (img_m, topic)),
-            ("sizes",     self._render_sizes,     (source_dir, slug)),
-            ("detail",    self._render_detail,    (img_m,)),
-            ("info",      self._render_info,      (img_m, product_dir, slug, topic)),
-        ]
+        render_map = {
+            "hero":      (self._render_hero,      (img_m, slug, topic, canvas_px)),
+            "lifestyle": (self._render_lifestyle, (img_m, topic, canvas_px)),
+            "sizes":     (self._render_sizes,     (source_dir, slug, canvas_px)),
+            "detail":    (self._render_detail,    (img_m, canvas_px)),
+            "info":      (self._render_info,      (img_m, product_dir, slug, topic, canvas_px)),
+        }
 
-        for name, fn, args in specs:
+        for name in order:
+            if name not in render_map:
+                log.warning("Unknown render type in upload_order: %r", name)
+                continue
+            fn, args = render_map[name]
             try:
                 result_img = fn(*args)
                 out_path = render_dir / f"{name}.jpg"
-                result_img.convert("RGB").save(str(out_path), "JPEG", quality=92)
+                result_img.convert("RGB").save(str(out_path), "JPEG", quality=quality)
                 renders.append(str(out_path))
                 log.info("Render saved: %s", out_path)
             except Exception as exc:
@@ -116,19 +136,19 @@ class RenderAgent:
 
     # ── IMG 1: hero ────────────────────────────────────────────────────────────
 
-    def _render_hero(self, img: Image.Image, slug: str, topic: str) -> Image.Image:
-        canvas = Image.new("RGBA", (CANVAS, CANVAS), COLOR_WHITE)
+    def _render_hero(self, img: Image.Image, slug: str, topic: str, canvas_px: int = 2000) -> Image.Image:
+        canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_WHITE)
         draw   = ImageDraw.Draw(canvas)
 
-        prod = self._fit(img, 1400)
-        ox = (CANVAS - prod.width)  // 2
-        oy = (CANVAS - prod.height) // 2
+        prod = self._fit(img, int(canvas_px * 0.70))
+        ox = (canvas_px - prod.width)  // 2
+        oy = (canvas_px - prod.height) // 2
         canvas.alpha_composite(prod, (ox, oy))
 
         # Badge prawy górny róg
         badge_text = "Food Safe · 3D Printed"
-        bw, bh = 480, 64
-        bx, by = CANVAS - bw - 40, 40
+        bw, bh = int(canvas_px * 0.24), 64
+        bx, by = canvas_px - bw - 40, 40
         draw.rounded_rectangle([bx, by, bx + bw, by + bh], radius=8, fill=COLOR_BADGE)
         draw.text(
             (bx + bw // 2, by + bh // 2), badge_text,
@@ -137,7 +157,7 @@ class RenderAgent:
 
         # Nazwa produktu dół center
         draw.text(
-            (CANVAS // 2, CANVAS - 80), topic.title(),
+            (canvas_px // 2, canvas_px - 80), topic.title(),
             fill=COLOR_BLACK, font=self._font(36), anchor="mm",
         )
 
@@ -145,31 +165,31 @@ class RenderAgent:
 
     # ── IMG 2: lifestyle ───────────────────────────────────────────────────────
 
-    def _render_lifestyle(self, img: Image.Image, topic: str) -> Image.Image:
-        canvas = Image.new("RGBA", (CANVAS, CANVAS), COLOR_CREAM)
+    def _render_lifestyle(self, img: Image.Image, topic: str, canvas_px: int = 2000) -> Image.Image:
+        canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_CREAM)
         draw   = ImageDraw.Draw(canvas)
 
         # Losowe kółka "mąka na blacie" (seed=42 → deterministyczne)
         rng = random.Random(42)
         for _ in range(80):
             r  = rng.randint(5, 30)
-            cx = rng.randint(0, CANVAS)
-            cy = rng.randint(0, CANVAS)
+            cx = rng.randint(0, canvas_px)
+            cy = rng.randint(0, canvas_px)
             draw.ellipse([cx - r, cy - r, cx + r, cy + r], fill=COLOR_BISCUIT)
 
         # Cień (paste z offsetem)
-        prod   = self._fit(img, 1300)
+        prod   = self._fit(img, int(canvas_px * 0.65))
         shadow = Image.new("RGBA", prod.size, (0, 0, 0, 0))
         sd     = ImageDraw.Draw(shadow)
         sd.rectangle([0, 0, prod.width, prod.height], fill=(0, 0, 0, 60))
-        cx = (CANVAS - prod.width)  // 2
-        cy = (CANVAS - prod.height) // 2
+        cx = (canvas_px - prod.width)  // 2
+        cy = (canvas_px - prod.height) // 2
         canvas.alpha_composite(shadow, (cx + 12, cy + 12))
         canvas.alpha_composite(prod,   (cx,      cy))
 
         # Prawy dolny tekst
         draw.text(
-            (CANVAS - 60, CANVAS - 60), "Baked with Love \u2665",
+            (canvas_px - 60, canvas_px - 60), "Baked with Love \u2665",
             fill=COLOR_WARM, font=self._font(30), anchor="rb",
         )
 
@@ -177,22 +197,25 @@ class RenderAgent:
 
     # ── IMG 3: sizes ───────────────────────────────────────────────────────────
 
-    def _render_sizes(self, source_dir: Path, slug: str) -> Image.Image:
-        canvas = Image.new("RGBA", (CANVAS, CANVAS), COLOR_WHITE)
+    def _render_sizes(self, source_dir: Path, slug: str, canvas_px: int = 2000) -> Image.Image:
+        canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_WHITE)
         draw   = ImageDraw.Draw(canvas)
 
         draw.text(
-            (CANVAS // 2, 80), "Available Sizes",
+            (canvas_px // 2, 80), "Available Sizes",
             fill=COLOR_BLACK, font=self._font(48), anchor="mm",
         )
 
+        # Pobierz rozmiary z config
+        from src.utils.config_loader import cfg as _cfg
+        sizes_cfg = _cfg("product_types").get("cutter", {}).get("sizes", {})
         sizes_info = [
-            ("S", 420, "S \u00b7 60mm"),
-            ("M", 520, "M \u00b7 75mm"),
-            ("L", 620, "L \u00b7 90mm"),
+            ("S", int(canvas_px * 0.21), f"S · {sizes_cfg.get('S', {}).get('width_mm', 60)}mm"),
+            ("M", int(canvas_px * 0.26), f"M · {sizes_cfg.get('M', {}).get('width_mm', 75)}mm"),
+            ("L", int(canvas_px * 0.31), f"L · {sizes_cfg.get('L', {}).get('width_mm', 90)}mm"),
         ]
-        col_xs = [340, 1000, 1660]
-        img_cy = CANVAS // 2 - 40
+        col_xs = [canvas_px // 6, canvas_px // 2, canvas_px * 5 // 6]
+        img_cy = canvas_px // 2 - 40
 
         for (size_key, px, label), col_x in zip(sizes_info, col_xs):
             prod_img = self._load_product_image(source_dir, slug, size_key)
@@ -209,24 +232,25 @@ class RenderAgent:
 
     # ── IMG 4: detail ──────────────────────────────────────────────────────────
 
-    def _render_detail(self, img: Image.Image) -> Image.Image:
-        canvas = Image.new("RGBA", (CANVAS, CANVAS), COLOR_WHITE)
+    def _render_detail(self, img: Image.Image, canvas_px: int = 2000) -> Image.Image:
+        canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_WHITE)
         draw   = ImageDraw.Draw(canvas)
 
-        prod = self._fit(img, 1600)
-        ox = (CANVAS - prod.width)  // 2
-        oy = (CANVAS - prod.height) // 2
+        prod = self._fit(img, int(canvas_px * 0.80))
+        ox = (canvas_px - prod.width)  // 2
+        oy = (canvas_px - prod.height) // 2
         canvas.alpha_composite(prod, (ox, oy))
 
-        # Lewa strzałka + opis grubości ścianki
+        # Pobierz grubość ścianki z config
+        from src.utils.config_loader import cfg as _cfg
+        wall = _cfg("product_types").get("cutter", {}).get("wall_thickness", 1.8)
         draw.text(
-            (180, CANVAS // 2), "\u2192 1.8mm walls",
+            (180, canvas_px // 2), f"\u2192 {wall}mm walls",
             fill=COLOR_RED, font=self._font(32), anchor="lm",
         )
 
-        # Prawy dół
         draw.text(
-            (CANVAS - 60, CANVAS - 60), "Food Safe PLA",
+            (canvas_px - 60, canvas_px - 60), "Food Safe PLA",
             fill=COLOR_GRAY, font=self._font(28), anchor="rb",
         )
 
@@ -240,14 +264,15 @@ class RenderAgent:
         product_dir: Path,
         slug: str,
         topic: str,
+        canvas_px: int = 2000,
     ) -> Image.Image:
-        canvas = Image.new("RGBA", (CANVAS, CANVAS), COLOR_LIGHT)
+        canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_LIGHT)
         draw   = ImageDraw.Draw(canvas)
 
-        # Produkt po lewej (800×800)
-        prod = self._fit(img, 800)
+        # Produkt po lewej
+        prod = self._fit(img, int(canvas_px * 0.40))
         ox = 80
-        oy = (CANVAS - prod.height) // 2
+        oy = (canvas_px - prod.height) // 2
         canvas.alpha_composite(prod, (ox, oy))
 
         # Dane z listing.json
@@ -266,7 +291,7 @@ class RenderAgent:
 
         # Prawa kolumna
         rx = ox + prod.width + 80
-        ry = (CANVAS - 700) // 2
+        ry = (canvas_px - 700) // 2
 
         # Tytuł może być długi — wstępnie ucinamy do 60 znaków
         short_title = title_text if len(title_text) <= 60 else title_text[:57] + "…"

@@ -4,7 +4,6 @@ orchestrator.py - łączy TrendAgent i ListingAgent w jeden pipeline.
 Funkcja run_pipeline() prowadzi produkt od tematu do gotowego listingu
 i zapisuje listing.json + meta.json w data/products/{slug}/.
 """
-import json
 import logging
 import uuid
 from datetime import datetime, timezone
@@ -17,11 +16,10 @@ from rich.table import Table
 from src.agents import trend_agent, listing_agent
 from src.agents.design_agent import create_design_agent
 from src.agents.model_agent import create_model_agent
+from src.utils.product_io import DATA_DIR, ensure_product_dir, save_meta, save_listing
 
 log = logging.getLogger(__name__)
 console = Console()
-
-DATA_DIR = Path(__file__).parents[2] / "data" / "products"
 
 
 def run_pipeline(
@@ -59,12 +57,10 @@ def run_pipeline(
     slug = listing["slug"]
 
     # ── 3. Zapis plików ──────────────────────────────────────────────────────
-    product_dir = DATA_DIR / slug
-    product_dir.mkdir(parents=True, exist_ok=True)
+    product_dir = ensure_product_dir(slug)
 
-    listing_file = product_dir / "listing.json"
-    listing_file.write_text(json.dumps(listing, indent=2, ensure_ascii=False))
-    log.info("Saved listing.json → %s", listing_file)
+    listing_path = save_listing(slug, listing)
+    log.info("Saved listing.json → %s", listing_path)
 
     meta = {
         "id": str(uuid.uuid4()),
@@ -75,9 +71,8 @@ def run_pipeline(
         "status": "draft",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    meta_file = product_dir / "meta.json"
-    meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
-    log.info("Saved meta.json → %s", meta_file)
+    meta_path = save_meta(slug, meta)
+    log.info("Saved meta.json → %s", meta_path)
 
     # ── 4. Design (SVG) ──────────────────────────────────────────────────────
     design_result = {"success": False, "files": [], "mode": "skipped"}
@@ -164,7 +159,7 @@ def run_pipeline(
     }
     meta["renders"] = {"success": render_ok, "count": len(render_result.get("renders", []))}
     meta["status"] = pipeline_status
-    meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+    save_meta(slug, meta)
     log.info("Updated meta.json → status=%s", pipeline_status)
 
     # ── 8. Podsumowanie w konsoli ─────────────────────────────────────────────

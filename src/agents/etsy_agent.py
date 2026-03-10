@@ -17,16 +17,10 @@ from pathlib import Path
 
 import requests
 
+from src.utils.config_loader import cfg
+from src.utils.product_io import load_listing, load_meta, update_meta
+
 log = logging.getLogger(__name__)
-
-ETSY_BASE      = "https://api.etsy.com/v3"
-ETSY_AUTH_URL  = "https://www.etsy.com/oauth/connect"
-ETSY_TOKEN_URL = "https://api.etsy.com/v3/public/oauth/token"
-REDIRECT_URI   = "http://localhost:3003/callback"
-SCOPES         = "listings_w transactions_r"
-
-# Etsy Taxonomy ID dla Cookie Cutters & Stamps
-TAXONOMY_ID = 68887614
 
 
 class EtsyAgent:
@@ -48,18 +42,17 @@ class EtsyAgent:
 
         # Wczytaj dane produktu
         listing_path = product_dir / "listing.json"
-        meta_path    = product_dir / "meta.json"
 
         if not listing_path.exists():
             return {"success": False, "listing_id": None, "url": None,
                     "error": f"listing.json nie istnieje: {listing_path}"}
 
-        listing = json.loads(listing_path.read_text())
-        meta    = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+        listing = load_listing(slug)
+        meta    = load_meta(slug)
 
         # ── Tryb dry-run (brak klucza API) ────────────────────────────────────
         if not self.api_key:
-            return self._dry_run(product_dir, slug, listing, meta, meta_path)
+            return self._dry_run(product_dir, slug, listing, meta)
 
         # ── Brak tokenu OAuth2 ─────────────────────────────────────────────────
         if not self.access_token:
@@ -71,7 +64,7 @@ class EtsyAgent:
             }
 
         # ── Publikacja przez Etsy API v3 ───────────────────────────────────────
-        return self._publish_to_etsy(product_dir, slug, listing, meta, meta_path)
+        return self._publish_to_etsy(product_dir, slug, listing, meta)
 
     # ── Dry-run ────────────────────────────────────────────────────────────────
 
@@ -81,8 +74,10 @@ class EtsyAgent:
         slug: str,
         listing: dict,
         meta: dict,
-        meta_path: Path,
     ) -> dict:
+        etsy_cfg = cfg("etsy")
+        taxonomy_id = etsy_cfg["listing"]["taxonomy_id"]
+
         export = self._build_listing_body(listing)
         export["_slug"]   = slug
         export["_source"] = "listing_export.json (dry-run)"
@@ -99,7 +94,7 @@ class EtsyAgent:
             "step_7":      "Shipping: ustaw profil wysyłki UE",
             "step_8":      "Kliknij Publish",
             "renders_path": renders_path,
-            "taxonomy_id": TAXONOMY_ID,
+            "taxonomy_id": taxonomy_id,
             "category":    "Cookie Cutters & Stamps",
         }
 
@@ -110,9 +105,7 @@ class EtsyAgent:
         # Aktualizuj meta
         meta.setdefault("etsy", {})
         meta["etsy"]["status"] = "dry_run"
-        meta["status"] = "ready_for_manual_publish"
-        if meta_path.exists():
-            meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+        update_meta(slug, etsy=meta["etsy"], status="ready_for_manual_publish")
 
         return {
             "success": True,
@@ -131,8 +124,10 @@ class EtsyAgent:
         slug: str,
         listing: dict,
         meta: dict,
-        meta_path: Path,
     ) -> dict:
+        etsy_cfg = cfg("etsy")
+        base_url = etsy_cfg["api"]["base_url"]
+
         headers = {
             "x-api-key":     self.api_key,
             "Authorization": f"Bearer {self.access_token}",
@@ -141,7 +136,7 @@ class EtsyAgent:
 
         # 1. Utwórz listing
         body = self._build_listing_body(listing)
-        url  = f"{ETSY_BASE}/application/shops/{self.shop_id}/listings"
+        url  = f"{base_url}/application/shops/{self.shop_id}/listings"
 
         try:
             resp = requests.post(url, headers=headers, json=body, timeout=30)
@@ -161,8 +156,9 @@ class EtsyAgent:
 
         # 2. Upload zdjęć
         renders_dir = product_dir / "renders"
-        image_names = ["hero.jpg", "lifestyle.jpg", "sizes.jpg", "detail.jpg", "info.jpg"]
-        uploaded    = 0
+        upload_order = etsy_cfg["images"]["upload_order"]
+        image_names  = [f"{name}.jpg" for name in upload_order]
+        uploaded     = 0
 
         for rank, name in enumerate(image_names, start=1):
             img_path = renders_dir / name
@@ -180,9 +176,7 @@ class EtsyAgent:
         meta["etsy"]["listing_id"] = listing_id
         meta["etsy"]["url"]        = listing_url
         meta["etsy"]["status"]     = "draft"
-        meta["status"]             = "listed"
-        if meta_path.exists():
-            meta_path.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
+        update_meta(slug, etsy=meta["etsy"], status="listed")
 
         return {
             "success":    True,
@@ -193,8 +187,9 @@ class EtsyAgent:
         }
 
     def _upload_image(self, listing_id: str, img_path: Path, rank: int) -> bool:
+        base_url = cfg("etsy")["api"]["base_url"]
         url = (
-            f"{ETSY_BASE}/application/shops/{self.shop_id}"
+            f"{base_url}/application/shops/{self.shop_id}"
             f"/listings/{listing_id}/images"
         )
         headers = {
@@ -220,17 +215,21 @@ class EtsyAgent:
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _build_listing_body(self, listing: dict) -> dict:
-        tags = listing.get("tags", [])[:13]
+        etsy_cfg    = cfg("etsy")
+        taxonomy_id = etsy_cfg["listing"]["taxonomy_id"]
+        quantity    = etsy_cfg["listing"]["quantity"]
+
+        tags  = listing.get("tags", [])[:13]
         price = float(listing.get("price_suggestion", 9.99))
 
         return {
             "title":               listing.get("title", "3D Printed Product"),
             "description":         listing.get("description", ""),
             "price":               price,
-            "quantity":            999,
+            "quantity":            quantity,
             "who_made":            "i_did",
             "when_made":           "made_to_order",
-            "taxonomy_id":         TAXONOMY_ID,
+            "taxonomy_id":         taxonomy_id,
             "tags":                tags,
             "is_digital":          False,
             "should_auto_renew":   True,
@@ -245,6 +244,11 @@ class EtsyAgent:
         Buduje URL do autoryzacji OAuth2 (PKCE).
         Zwraca: (auth_url, code_verifier, state)
         """
+        etsy_cfg      = cfg("etsy")
+        auth_url_base = etsy_cfg["api"]["oauth_base_url"]
+        redirect_uri  = etsy_cfg["api"]["redirect_uri"]
+        scopes        = " ".join(etsy_cfg["api"]["scopes"])
+
         code_verifier  = secrets.token_urlsafe(64)
         code_challenge = base64.urlsafe_b64encode(
             hashlib.sha256(code_verifier.encode()).digest()
@@ -253,27 +257,31 @@ class EtsyAgent:
 
         params = {
             "response_type":         "code",
-            "redirect_uri":          REDIRECT_URI,
-            "scope":                 SCOPES,
+            "redirect_uri":          redirect_uri,
+            "scope":                 scopes,
             "client_id":             os.getenv("ETSY_API_KEY", ""),
             "state":                 state,
             "code_challenge":        code_challenge,
             "code_challenge_method": "S256",
         }
-        auth_url = ETSY_AUTH_URL + "?" + urllib.parse.urlencode(params)
+        auth_url = auth_url_base + "?" + urllib.parse.urlencode(params)
         return auth_url, code_verifier, state
 
     @staticmethod
     def exchange_code(code: str, code_verifier: str) -> dict:
         """Wymienia authorization code na access_token."""
+        etsy_cfg     = cfg("etsy")
+        token_url    = etsy_cfg["api"]["token_url"]
+        redirect_uri = etsy_cfg["api"]["redirect_uri"]
+
         data = {
             "grant_type":    "authorization_code",
             "client_id":     os.getenv("ETSY_API_KEY", ""),
-            "redirect_uri":  REDIRECT_URI,
+            "redirect_uri":  redirect_uri,
             "code":          code,
             "code_verifier": code_verifier,
         }
-        resp = requests.post(ETSY_TOKEN_URL, data=data, timeout=30)
+        resp = requests.post(token_url, data=data, timeout=30)
         resp.raise_for_status()
         return resp.json()
 

@@ -6,6 +6,10 @@ Tryby:
   pure_python - bezposredni zapis binarnego STL (triangulacja wlasna)
   auto        - openscad jesli dostepny, inaczej pure_python
 
+Walidacja STL:
+  - Podstawowa (format binarny, rozmiar pliku) — zawsze
+  - trimesh (watertight, objętość, normalne) — gdy trimesh zainstalowany
+
 Interfejs:
   agent = create_model_agent('auto')
   result = agent.generate(svg_path, product_type, size_key, output_dir)
@@ -24,23 +28,37 @@ import subprocess
 import tempfile
 from pathlib import Path
 
+from src.utils.config_loader import cfg
+
 log = logging.getLogger(__name__)
 
-# ── stalep food-safe (niezmienne) ─────────────────────────────────────────────
+
+def _cutter_cfg() -> dict:
+    """Zwraca parametry cutter z product_types.yaml."""
+    return cfg("product_types").get("cutter", {})
+
+def _stamp_cfg() -> dict:
+    return cfg("product_types").get("stamp", {})
+
+def _size_mm_map() -> dict:
+    """Buduje mapę size_key → width_mm z product_types.yaml (cutter jako referencja)."""
+    sizes_raw = _cutter_cfg().get("sizes", {})
+    return {k: float(v.get("width_mm", 75.0)) for k, v in sizes_raw.items()}
+
+
+# ── Stałe fallback (używane przez klasy przed inicjalizacją, cfg ważniejszy) ──
 
 CUTTING_EDGE_MM: float  = 0.40
 WALL_THICK_MM: float    = 1.80
 BASE_THICK_MM: float    = 4.00
 TOTAL_HEIGHT_MM: float  = 12.0
-MIN_FILLET_MM: float    = 0.50
-DRAFT_ANGLE_DEG: float  = 3.0
 RELIEF_HEIGHT_MM: float = 1.50
 
 SIZE_MM: dict = {
     "S":    60.0,
     "M":    75.0,
     "L":    90.0,
-    "XL":  100.0,
+    "XL":  110.0,
     "XXL": 120.0,
     "XXXL":150.0,
 }
@@ -494,40 +512,95 @@ class PurePythonSTLWriter:
 # ── STLValidator ──────────────────────────────────────────────────────────────
 
 class STLValidator:
-    """Waliduje pliki STL (format binarny)."""
+    """Waliduje pliki STL.
+
+    Dwa poziomy walidacji:
+    1. Podstawowa — format binarny/ASCII, rozmiar pliku, min trójkątów (zawsze)
+    2. trimesh    — watertight, objętość > 0, normalne (gdy trimesh dostępny)
+    """
 
     def validate(self, stl_path: Path, config: dict) -> dict:
         stl_path = Path(stl_path)
         if not stl_path.exists():
             return {"valid": False, "error": "File does not exist", "n_triangles": 0}
+
         size = stl_path.stat().st_size
         if size <= 84:
             return {"valid": False, "error": f"File too small ({size} B)", "n_triangles": 0}
+
         data = stl_path.read_bytes()
-        # Wykryj format: ASCII (zaczyna sie od "solid") vs binarny
+
+        # ── Format ASCII ──
         if data[:5].lower() == b"solid":
             n_tri = data.decode("ascii", errors="replace").count("facet normal")
             if n_tri < 10:
-                return {"valid": False, "error": f"ASCII STL: too few triangles ({n_tri})", "n_triangles": n_tri}
-            return {"valid": True, "n_triangles": n_tri, "file_size": size,
-                    "expected_size": size, "error": None, "stl_format": "ascii"}
-        # Binarny STL
+                return {"valid": False, "error": f"ASCII STL: too few triangles ({n_tri})",
+                        "n_triangles": n_tri}
+            result = {"valid": True, "n_triangles": n_tri, "file_size": size,
+                      "stl_format": "ascii", "error": None}
+            return self._trimesh_check(stl_path, result)
+
+        # ── Format binarny ──
         try:
             n_tri = struct.unpack("<I", data[80:84])[0]
         except Exception as e:
             return {"valid": False, "error": f"Cannot read header: {e}", "n_triangles": 0}
+
         if n_tri < 10:
             return {"valid": False, "error": f"Too few triangles ({n_tri})", "n_triangles": n_tri}
+
         expected = 84 + n_tri * 50
-        size_ok = abs(size - expected) < 1024
-        return {
-            "valid": size_ok,
-            "n_triangles": n_tri,
-            "file_size": size,
+        size_ok  = abs(size - expected) < 1024
+        result   = {
+            "valid":         size_ok,
+            "n_triangles":   n_tri,
+            "file_size":     size,
             "expected_size": expected,
-            "stl_format": "binary",
-            "error": None if size_ok else f"Size mismatch: {size} vs {expected}",
+            "stl_format":    "binary",
+            "error":         None if size_ok else f"Size mismatch: {size} vs {expected}",
         }
+        if not size_ok:
+            return result
+        return self._trimesh_check(stl_path, result)
+
+    def _trimesh_check(self, stl_path: Path, base_result: dict) -> dict:
+        """Rozszerza walidację o trimesh jeśli dostępny. Nie nadpisuje valid=True na False
+        tylko na podstawie watertight — niektóre modele mają drobne luki i nadal drukują się OK.
+        Dodaje pola: watertight, volume_mm3, trimesh_warnings."""
+        try:
+            import trimesh
+        except ImportError:
+            log.debug("trimesh not available — skipping mesh quality check")
+            return base_result
+
+        try:
+            mesh = trimesh.load(str(stl_path), force="mesh")
+
+            watertight = bool(mesh.is_watertight)
+            volume     = float(mesh.volume) if watertight else 0.0
+            warnings   = []
+
+            if not watertight:
+                warnings.append("mesh is not watertight (may have open edges)")
+            if volume < 0:
+                warnings.append(f"negative volume ({volume:.2f} mm³) — normals may be inverted")
+            if mesh.is_empty:
+                warnings.append("mesh is empty")
+
+            base_result["watertight"]      = watertight
+            base_result["volume_mm3"]      = round(volume, 2)
+            base_result["trimesh_warnings"] = warnings
+
+            if warnings:
+                log.warning("STL quality issues in %s: %s", stl_path.name, "; ".join(warnings))
+            else:
+                log.debug("STL trimesh OK: %s (watertight, vol=%.1f mm³)", stl_path.name, volume)
+
+        except Exception as exc:
+            log.warning("trimesh check failed for %s: %s", stl_path.name, exc)
+            base_result["trimesh_warnings"] = [f"trimesh check error: {exc}"]
+
+        return base_result
 
 
 # ── ModelAgent ────────────────────────────────────────────────────────────────
@@ -560,7 +633,9 @@ class ModelAgent:
         svg_path   = Path(svg_path)
         output_dir = Path(output_dir)
         size_key   = size_key.upper()
-        size_mm    = SIZE_MM.get(size_key, 75.0)
+        # Wymiary z config (fallback do stałych)
+        size_map   = _size_mm_map()
+        size_mm    = size_map.get(size_key, SIZE_MM.get(size_key, 75.0))
         slug       = svg_path.stem
 
         if not svg_path.exists():
@@ -579,32 +654,36 @@ class ModelAgent:
         stl_path = output_dir / stl_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        cfg = {
-            "total_height":  TOTAL_HEIGHT_MM,
-            "base_thick":    BASE_THICK_MM,
-            "wall_thick":    WALL_THICK_MM,
-            "cutting_edge":  CUTTING_EDGE_MM,
-            "relief_height": RELIEF_HEIGHT_MM,
+        # Pobierz parametry z product_types.yaml lub użyj stałych jako fallback
+        pt_cfg = _cutter_cfg() if product_type != "stamp" else _stamp_cfg()
+        model_cfg = {
+            "total_height":  float(pt_cfg.get("total_height",   TOTAL_HEIGHT_MM)),
+            "base_thick":    float(pt_cfg.get("base_height",    BASE_THICK_MM)),
+            "wall_thick":    float(pt_cfg.get("wall_thickness", WALL_THICK_MM)),
+            "cutting_edge":  float(pt_cfg.get("blade_thickness", CUTTING_EDGE_MM)),
+            "relief_height": float(pt_cfg.get("relief_height",  RELIEF_HEIGHT_MM)),
         }
 
         if self.mode == "openscad":
             n_tri = self._generate_via_openscad(contours, product_type, size_mm, slug, stl_path)
         elif product_type == "stamp":
-            n_tri = self.stl_writer.generate_stamp_stl(main_contour, cfg, stl_path)
+            n_tri = self.stl_writer.generate_stamp_stl(main_contour, model_cfg, stl_path)
         else:
-            n_tri = self.stl_writer.generate_cutter_stl(main_contour, cfg, stl_path)
+            n_tri = self.stl_writer.generate_cutter_stl(main_contour, model_cfg, stl_path)
 
-        result = self.validator.validate(stl_path, cfg)
+        result = self.validator.validate(stl_path, model_cfg)
         result["stl_path"]    = str(stl_path)
         result["n_triangles"] = n_tri
+        result["size_mm"]     = size_mm
         return result
 
     def generate_all(self, slug: str, product_type: str, source_dir: Path, output_dir: Path) -> dict:
         source_dir = Path(source_dir)
         output_dir = Path(output_dir)
         sizes_result = {}
+        size_map = _size_mm_map()
 
-        for size_key in SIZE_MM:
+        for size_key in size_map:
             size_lower = size_key.lower()
             candidates = [
                 source_dir / f"{slug}-{size_key}.svg",
