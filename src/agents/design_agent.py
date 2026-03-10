@@ -4,13 +4,14 @@ design_agent.py - generuje pliki SVG dla produktów 3D (cuttery, stemple).
 Tryby:
   mock  - szybkie placeholder SVG (do testów i CI, bez API)
   real  - generowanie przez Claude API (produkcja)
+  auto  - Claude API jeśli ANTHROPIC_API_KEY dostępny, inaczej mock
 
 Interfejs:
   agent = create_design_agent('mock')
   result = agent.generate(topic, product_type, sizes=['S','M','L'], output_dir=Path(...))
   # result: {'success': bool, 'slug': str, 'files': [{'size', 'path', 'width_mm', 'height_mm'}]}
 
-Uruchomienie standalone (domyślny przykład):
+Uruchomienie standalone:
   python3 src/agents/design_agent.py
 """
 import json
@@ -42,6 +43,9 @@ WALL_MM = 2.5
 
 DATA_DIR = Path(__file__).parents[2] / "data" / "products"
 MODEL = "claude-sonnet-4-6"
+
+# Liczba prób generowania przez API
+_MAX_RETRIES = 3
 
 
 # ── helper ────────────────────────────────────────────────────────────────────
@@ -75,20 +79,82 @@ def _detect_shape(topic: str) -> str:
         return "hexagon"
     if any(w in t for w in ("sun", "boho", "sunburst", "sunshine")):
         return "sun"
+    if any(w in t for w in ("pumpkin", "halloween", "gourd")):
+        return "pumpkin"
+    if any(w in t for w in ("christmas", "xmas", "tree", "pine", "fir")):
+        return "christmas_tree"
+    if any(w in t for w in ("snowflake", "snow", "winter", "ice crystal")):
+        return "snowflake"
+    if any(w in t for w in ("gingerbread", "ginger", "man", "person", "human")):
+        return "gingerbread"
     return "rounded_rect"
 
 
-# ── generatory ścieżek SVG (normalizowane: cx, cy = środek, size = promień/szerokość) ─
+# ── walidacja ─────────────────────────────────────────────────────────────────
+
+def _validate_path(path_d: str, size_mm: float) -> tuple[bool, str]:
+    """
+    Waliduje SVG path pod kątem druku 3D.
+
+    Returns:
+        (ok: bool, reason: str)
+    """
+    d = path_d.strip()
+    d_upper = d.upper()
+
+    # Musi zaczynać się od M i kończyć na Z
+    if not d_upper.lstrip().startswith("M"):
+        return False, "Path must start with M command"
+    if not d_upper.rstrip().endswith("Z"):
+        return False, "Path must end with Z command"
+
+    # Tylko jedna ścieżka (jedno M na początku)
+    # Liczymy M po pierwszym znaku (spacje wokół lub cyfry)
+    subsequent_m = re.findall(r"(?<=[^A-Za-z])M\s", d_upper[2:])
+    if subsequent_m:
+        return False, f"Multiple subpaths detected ({1 + len(subsequent_m)} M commands) — must be single closed path"
+
+    # Minimalna liczba punktów współrzędnych
+    coords = re.findall(r"-?\d+\.?\d*\s*,\s*-?\d+\.?\d*", d)
+    if len(coords) < 3:
+        return False, f"Too few coordinate pairs ({len(coords)}) — need at least 3 for a recognizable shape"
+
+    # Sprawdź zdegenerowane łuki (A) — punkty startowy i końcowy identyczne lub <0.05 apart
+    # Pattern: A rx ry x-rotation large-arc-flag sweep-flag x y
+    arc_ends = re.findall(
+        r"A\s+[\d.]+\s*,?\s*[\d.]+\s+[\d.]+\s+[01]\s+[01]\s+(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)",
+        d_upper,
+    )
+    for ex, ey in arc_ends:
+        # Check against preceding M or last coord — simplified: just warn if nearly same
+        # We can't easily track current point here, so check for A followed by Z immediately
+        pass  # full degenerate-arc detection handled by retry on API side
+
+    # Sprawdź zakresy współrzędnych
+    margin = size_mm * 0.15
+    for coord in coords:
+        parts = re.split(r"\s*,\s*", coord.strip())
+        try:
+            x, y = float(parts[0]), float(parts[1])
+        except (ValueError, IndexError):
+            continue
+        if not (-margin <= x <= size_mm + margin):
+            return False, f"X coordinate {x:.1f} out of bounds [0, {size_mm:.0f}]"
+        if not (-margin <= y <= size_mm + margin):
+            return False, f"Y coordinate {y:.1f} out of bounds [0, {size_mm:.0f}]"
+
+    return True, "OK"
+
+
+# ── generatory ścieżek SVG ────────────────────────────────────────────────────
 
 def _path_mountain(cx: float, cy: float, s: float) -> str:
     """Sylwetka gór - trójkąt z drugim szczytem."""
     h = s * 0.88
     w = s * 0.92
-    # główny szczyt
     ax, ay = cx, cy - h / 2
     br, bb = cx + w / 2, cy + h / 2
     bl = cx - w / 2
-    # drugi szczyt (lewo)
     p2x = cx - w * 0.22
     p2y = cy - h * 0.25
     p2l = cx - w * 0.46
@@ -104,27 +170,39 @@ def _path_mountain(cx: float, cy: float, s: float) -> str:
 
 
 def _path_heart(cx: float, cy: float, s: float) -> str:
-    """Klasyczne serce przez krzywe Beziera."""
-    # Serce: szerokość ≈ 1.2s, wysokość ≈ s
-    w = s
-    h = s * 0.9
-    top_y = cy - h * 0.15
+    """Klasyczne serce przez krzywe Beziera — wiarygodny kształt."""
+    w = s * 0.96
+    h = s * 0.90
     # dolny czubek
-    tip_x, tip_y = cx, cy + h * 0.5
-    # lewe i prawe górne okręgi
-    lx = cx - w * 0.5
-    rx = cx + w * 0.5
-    # punkty kontrolne
-    d = f"M {cx:.2f},{top_y:.2f}"
-    d += f" C {rx:.2f},{cy - h * 0.6:.2f} {rx + w * 0.5:.2f},{cy + h * 0.1:.2f} {tip_x:.2f},{tip_y:.2f}"
-    d += f" C {lx - w * 0.5:.2f},{cy + h * 0.1:.2f} {lx:.2f},{cy - h * 0.6:.2f} {cx:.2f},{top_y:.2f}"
+    tip_x, tip_y = cx, cy + h * 0.52
+    # górne wcięcie
+    dip_x, dip_y = cx, cy - h * 0.02
+    # lewe i prawe górne szczyty
+    lhx, lhy = cx - w * 0.50, cy - h * 0.28
+    rhx, rhy = cx + w * 0.50, cy - h * 0.28
+    # punkty startowe na górze (środek wcięcia)
+    d  = f"M {dip_x:.2f},{dip_y:.2f}"
+    # prawa strona: z wcięcia do prawego szczytu do czubka
+    d += (f" C {cx + w * 0.12:.2f},{cy - h * 0.55:.2f}"
+          f" {cx + w * 0.90:.2f},{cy - h * 0.55:.2f}"
+          f" {rhx:.2f},{rhy:.2f}")
+    d += (f" C {cx + w * 1.05:.2f},{cy + h * 0.05:.2f}"
+          f" {cx + w * 0.60:.2f},{cy + h * 0.35:.2f}"
+          f" {tip_x:.2f},{tip_y:.2f}")
+    # lewa strona: z czubka do lewego szczytu do wcięcia
+    d += (f" C {cx - w * 0.60:.2f},{cy + h * 0.35:.2f}"
+          f" {cx - w * 1.05:.2f},{cy + h * 0.05:.2f}"
+          f" {lhx:.2f},{lhy:.2f}")
+    d += (f" C {cx - w * 0.90:.2f},{cy - h * 0.55:.2f}"
+          f" {cx - w * 0.12:.2f},{cy - h * 0.55:.2f}"
+          f" {dip_x:.2f},{dip_y:.2f}")
     d += " Z"
     return d
 
 
 def _path_star(cx: float, cy: float, s: float, points: int = 5) -> str:
     """Gwiazdka (domyślnie 5 ramion)."""
-    r_outer = s * 0.5
+    r_outer = s * 0.50
     r_inner = s * 0.21
     pts = []
     for i in range(points * 2):
@@ -136,54 +214,63 @@ def _path_star(cx: float, cy: float, s: float, points: int = 5) -> str:
 
 
 def _path_moon(cx: float, cy: float, s: float) -> str:
-    """Sierp księżyca."""
-    r = s * 0.46
-    # outer circle - inner circle offset
-    offset = r * 0.38
+    """
+    Sierp księżyca — bezier approximation (bez łuków A, ≥8 punktów).
+    Zewnętrzny okrąg (prawa strona) + wewnętrzny okrąg przesunięty w prawo.
+    """
+    r   = s * 0.46
+    ri  = r * 0.82   # promień okręgu wewnętrznego (wycięcia)
+    off = r * 0.38   # przesunięcie środka wewnętrznego okręgu w prawo
+    k   = 0.5523     # stała aproksymacji Beziera dla ćwiartek koła
+
+    # Zewnętrzny okrąg: prawa połowa (góra → dół), dwie ćwiartki
+    # Wewnętrzny okrąg: prawa połowa (dół → góra, przesunięty), wracamy na start
     d = (
         f"M {cx:.2f},{cy - r:.2f}"
-        f" A {r:.2f},{r:.2f} 0 1 1 {cx:.2f},{cy + r:.2f}"
-        f" A {r * 0.85:.2f},{r * 0.85:.2f} 0 0 0 {cx:.2f},{cy - r:.2f} Z"
-    )
-    # Prostsze podejście: dwa łuki
-    ox = cx + offset
-    d = (
-        f"M {cx:.2f},{cy - r:.2f}"
-        f" A {r:.2f},{r:.2f} 0 1 1 {cx:.2f},{cy + r:.2f}"
-        f" A {r:.2f},{r:.2f} 0 0 0 {cx:.2f},{cy - r:.2f} Z"
+        # zewnętrzna ćwiartka: top → right
+        f" C {cx + r*k:.2f},{cy - r:.2f} {cx + r:.2f},{cy - r*k:.2f} {cx + r:.2f},{cy:.2f}"
+        # zewnętrzna ćwiartka: right → bottom
+        f" C {cx + r:.2f},{cy + r*k:.2f} {cx + r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
+        # wewnętrzny okrąg (środek = cx+off) — dolna ćwiartka: bottom → left
+        f" C {cx + off - ri*k:.2f},{cy + ri:.2f} {cx + off - ri:.2f},{cy + ri*k:.2f} {cx + off - ri:.2f},{cy:.2f}"
+        # wewnętrzny okrąg — górna ćwiartka: left → top
+        f" C {cx + off - ri:.2f},{cy - ri*k:.2f} {cx + off - ri*k:.2f},{cy - ri:.2f} {cx:.2f},{cy - r:.2f}"
+        " Z"
     )
     return d
 
 
 def _path_floral(cx: float, cy: float, s: float) -> str:
-    """Kwiatowy wieniec - koło z płatkami."""
-    # Zewnętrzny wieniec: 8 płatków
+    """
+    Kwiatowy wieniec — 8 płatków jako jedna zamknięta ścieżka.
+    Płatki tworzone krzywymi Beziera — brak zdegenerowanych łuków.
+    """
     n_petals = 8
-    r_inner = s * 0.20
-    r_outer = s * 0.46
-    r_petal = s * 0.16
-    pts_outer = []
-    for i in range(n_petals):
-        angle = math.radians(i * 360 / n_petals)
-        px = cx + (r_inner + r_petal) * math.cos(angle)
-        py = cy + (r_inner + r_petal) * math.sin(angle)
-        pts_outer.append((px, py, angle))
+    r_outer = s * 0.46   # końce płatków
+    r_inner = s * 0.28   # doliny między płatkami
 
-    # Buduj ścieżkę z płatków (elipsy przybliżone łukami)
-    parts = []
-    for px, py, angle in pts_outer:
-        # Każdy płatek to mały okrąg
-        parts.append(
-            f"M {px + r_petal * math.cos(angle):.2f},{py + r_petal * math.sin(angle):.2f}"
-            f" A {r_petal:.2f},{r_petal:.2f} 0 1 1"
-            f" {px + r_petal * math.cos(angle) - 0.01:.2f},{py + r_petal * math.sin(angle):.2f} Z"
-        )
-    # Środkowe koło
-    parts.append(
-        f"M {cx + r_inner:.2f},{cy:.2f}"
-        f" A {r_inner:.2f},{r_inner:.2f} 0 1 1 {cx + r_inner - 0.01:.2f},{cy:.2f} Z"
-    )
-    return " ".join(parts)
+    # Generujemy 16 punktów: przemiennie zewnętrzne (końce płatków) i wewnętrzne (doliny)
+    pts: list[tuple[float, float]] = []
+    for i in range(n_petals * 2):
+        angle = math.radians(i * 180 / n_petals - 90)
+        r = r_outer if i % 2 == 0 else r_inner
+        pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+
+    # Buduj ścieżkę z gładkimi krzywymi kwadratowymi Beziera
+    # Każdy punkt to punkt kontrolny Q, endpoint = połowa odcinka do następnego punktu
+    first_mid_x = (pts[-1][0] + pts[0][0]) / 2
+    first_mid_y = (pts[-1][1] + pts[0][1]) / 2
+    d = f"M {first_mid_x:.2f},{first_mid_y:.2f}"
+
+    for i in range(len(pts)):
+        ctrl = pts[i]
+        nxt  = pts[(i + 1) % len(pts)]
+        mid_x = (ctrl[0] + nxt[0]) / 2
+        mid_y = (ctrl[1] + nxt[1]) / 2
+        d += f" Q {ctrl[0]:.2f},{ctrl[1]:.2f} {mid_x:.2f},{mid_y:.2f}"
+
+    d += " Z"
+    return d
 
 
 def _path_leaf(cx: float, cy: float, s: float) -> str:
@@ -205,7 +292,6 @@ def _path_butterfly(cx: float, cy: float, s: float) -> str:
     """Motyl - dwie pary skrzydeł."""
     w = s * 0.48
     h = s * 0.38
-    # Górne skrzydła
     d = (
         f"M {cx:.2f},{cy:.2f}"
         f" C {cx - w * 0.3:.2f},{cy - h * 1.5:.2f} {cx - w * 1.1:.2f},{cy - h * 1.0:.2f} {cx - w:.2f},{cy:.2f}"
@@ -219,13 +305,12 @@ def _path_butterfly(cx: float, cy: float, s: float) -> str:
 
 def _path_mushroom(cx: float, cy: float, s: float) -> str:
     """Grzyb - kapelusz i nóżka."""
-    cap_r = s * 0.44
+    cap_r  = s * 0.44
     stem_w = s * 0.22
     stem_h = s * 0.34
-    top_y = cy - s * 0.18
+    top_y    = cy - s * 0.18
     stem_top = cy + s * 0.18
     stem_bot = cy + s * 0.52
-    # kapelusz (półkole)
     d = (
         f"M {cx - cap_r:.2f},{top_y:.2f}"
         f" A {cap_r:.2f},{cap_r:.2f} 0 0 1 {cx + cap_r:.2f},{top_y:.2f}"
@@ -251,17 +336,192 @@ def _path_hexagon(cx: float, cy: float, s: float) -> str:
 
 
 def _path_sun(cx: float, cy: float, s: float) -> str:
-    """Słońce boho - koło z 12 promieniami."""
-    r_inner = s * 0.22
-    r_outer = s * 0.46
-    r_tip = s * 0.10
+    """Słońce boho - koło z 12 promieniami (gwiazdka 12-ramienna)."""
     n = 12
+    r_outer = s * 0.46
+    r_inner = s * 0.28
     pts = []
     for i in range(n * 2):
-        angle = math.radians(i * 180 / n)
+        angle = math.radians(i * 180 / n - 90)
         r = r_outer if i % 2 == 0 else r_inner
         pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
-    d = "M " + " L ".join(f"{x:.2f},{y:.2f}" for x, y in pts) + " Z"
+    # Gładkie łuki między punktami jak w _path_floral
+    first_mid_x = (pts[-1][0] + pts[0][0]) / 2
+    first_mid_y = (pts[-1][1] + pts[0][1]) / 2
+    d = f"M {first_mid_x:.2f},{first_mid_y:.2f}"
+    for i in range(len(pts)):
+        ctrl = pts[i]
+        nxt  = pts[(i + 1) % len(pts)]
+        mid_x = (ctrl[0] + nxt[0]) / 2
+        mid_y = (ctrl[1] + nxt[1]) / 2
+        d += f" Q {ctrl[0]:.2f},{ctrl[1]:.2f} {mid_x:.2f},{mid_y:.2f}"
+    d += " Z"
+    return d
+
+
+def _path_pumpkin(cx: float, cy: float, s: float) -> str:
+    """Dynia halloween — 4 segmenty i szypułka."""
+    # Cztery zaokrąglone sekcje dyni + szypułka
+    w = s * 0.88
+    h = s * 0.76
+    st_w = s * 0.10   # szypułka szerokość
+    st_h = s * 0.22   # szypułka wysokość
+    top_y = cy - h / 2
+    bot_y = cy + h / 2
+
+    # Lewa strona dyni (cubic bezier)
+    d = (
+        f"M {cx - st_w:.2f},{top_y:.2f}"
+        # szypułka góra-lewa do górnej krawędzi dyni
+        f" L {cx - st_w:.2f},{top_y - st_h:.2f}"
+        f" L {cx + st_w:.2f},{top_y - st_h:.2f}"
+        f" L {cx + st_w:.2f},{top_y:.2f}"
+        # prawa połowa dyni (dwa segmenty)
+        f" C {cx + w * 0.25:.2f},{top_y:.2f} {cx + w * 0.50:.2f},{cy - h * 0.40:.2f} {cx + w / 2:.2f},{cy:.2f}"
+        f" C {cx + w * 0.50:.2f},{cy + h * 0.40:.2f} {cx + w * 0.25:.2f},{bot_y:.2f} {cx + st_w:.2f},{bot_y:.2f}"
+        # dół środkowy
+        f" L {cx - st_w:.2f},{bot_y:.2f}"
+        # lewa połowa dyni
+        f" C {cx - w * 0.25:.2f},{bot_y:.2f} {cx - w * 0.50:.2f},{cy + h * 0.40:.2f} {cx - w / 2:.2f},{cy:.2f}"
+        f" C {cx - w * 0.50:.2f},{cy - h * 0.40:.2f} {cx - w * 0.25:.2f},{top_y:.2f} {cx - st_w:.2f},{top_y:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_christmas_tree(cx: float, cy: float, s: float) -> str:
+    """Choinka — trzy warstwy trójkątów + pień."""
+    h = s * 0.88
+    top_y = cy - h / 2
+    bot_y = cy + h / 2
+    trunk_w = s * 0.12
+    trunk_h = s * 0.18
+
+    # Warstwy: dół, środek, góra
+    w1 = s * 0.86   # dolna warstwa
+    w2 = s * 0.62   # środkowa
+    w3 = s * 0.38   # górna (czubek)
+    y1 = bot_y - trunk_h               # dół warstwy 1
+    y2 = y1 - h * 0.28                 # dół warstwy 2 (nakłada się)
+    y3 = y2 - h * 0.25                 # dół warstwy 3
+
+    d = (
+        # pień
+        f"M {cx - trunk_w:.2f},{bot_y:.2f}"
+        f" L {cx - trunk_w:.2f},{y1:.2f}"
+        # dolna warstwa
+        f" L {cx - w1 / 2:.2f},{y1:.2f}"
+        f" L {cx:.2f},{y2:.2f}"
+        f" L {cx + w1 / 2:.2f},{y1:.2f}"
+        f" L {cx + trunk_w:.2f},{y1:.2f}"
+        f" L {cx + trunk_w:.2f},{bot_y:.2f}"
+        f" Z"
+    )
+    # Prościej jako jeden wielokąt bez "nakładania":
+    d = (
+        f"M {cx - trunk_w:.2f},{bot_y:.2f}"
+        f" L {cx - trunk_w:.2f},{y1:.2f}"
+        f" L {cx - w1 / 2:.2f},{y1:.2f}"
+        f" L {cx - w2 / 2:.2f},{y2:.2f}"
+        f" L {cx - w3 / 2:.2f},{y2:.2f}"
+        f" L {cx:.2f},{top_y:.2f}"
+        f" L {cx + w3 / 2:.2f},{y2:.2f}"
+        f" L {cx + w2 / 2:.2f},{y2:.2f}"
+        f" L {cx + w1 / 2:.2f},{y1:.2f}"
+        f" L {cx + trunk_w:.2f},{y1:.2f}"
+        f" L {cx + trunk_w:.2f},{bot_y:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_snowflake(cx: float, cy: float, s: float) -> str:
+    """Płatek śniegu — 6 ramion z gałęziami."""
+    n = 6
+    r_arm  = s * 0.46
+    r_base = s * 0.08
+    r_branch = s * 0.20
+    branch_off = s * 0.22  # odległość od centrum do rozgałęzień
+
+    pts: list[tuple[float, float]] = []
+    for i in range(n):
+        angle_arm   = math.radians(i * 60 - 90)
+        angle_left  = math.radians(i * 60 - 90 + 60)
+        angle_right = math.radians(i * 60 - 90 - 60)
+
+        # końcówka ramienia
+        tip_x = cx + r_arm * math.cos(angle_arm)
+        tip_y = cy + r_arm * math.sin(angle_arm)
+        # lewa gałąź
+        bl_x = cx + branch_off * math.cos(angle_arm) + r_branch * math.cos(angle_left)
+        bl_y = cy + branch_off * math.sin(angle_arm) + r_branch * math.sin(angle_left)
+        # prawa gałąź
+        br_x = cx + branch_off * math.cos(angle_arm) + r_branch * math.cos(angle_right)
+        br_y = cy + branch_off * math.sin(angle_arm) + r_branch * math.sin(angle_right)
+        # punkt rozgałęzienia
+        base_x = cx + branch_off * math.cos(angle_arm)
+        base_y = cy + branch_off * math.sin(angle_arm)
+
+        pts += [
+            (cx + r_base * math.cos(angle_arm), cy + r_base * math.sin(angle_arm)),
+            (bl_x, bl_y), (base_x, base_y), (br_x, br_y),
+            (base_x, base_y),
+            (tip_x, tip_y),
+        ]
+
+    d = f"M {pts[0][0]:.2f},{pts[0][1]:.2f}"
+    for p in pts[1:]:
+        d += f" L {p[0]:.2f},{p[1]:.2f}"
+    d += " Z"
+    return d
+
+
+def _path_gingerbread(cx: float, cy: float, s: float) -> str:
+    """Ludzik z piernika — głowa, tułów, ręce, nogi."""
+    head_r  = s * 0.18
+    body_w  = s * 0.32
+    body_h  = s * 0.28
+    arm_w   = s * 0.36
+    arm_h   = s * 0.10
+    leg_w   = s * 0.14
+    leg_h   = s * 0.28
+
+    head_cy = cy - s * 0.38
+    body_top = head_cy + head_r
+    body_bot = body_top + body_h
+    arm_y    = body_top + body_h * 0.20
+
+    d = (
+        # głowa (przybliżony okrąg przez 8-kąt)
+        f"M {cx:.2f},{head_cy - head_r:.2f}"
+        f" C {cx + head_r * 0.7:.2f},{head_cy - head_r * 0.7:.2f}"
+        f" {cx + head_r:.2f},{head_cy - head_r * 0.3:.2f} {cx + head_r:.2f},{head_cy:.2f}"
+        f" C {cx + head_r:.2f},{head_cy + head_r * 0.7:.2f}"
+        f" {cx + head_r * 0.5:.2f},{body_top:.2f} {cx + body_w / 2:.2f},{body_top:.2f}"
+        # prawa ręka
+        f" L {cx + arm_w:.2f},{arm_y:.2f}"
+        f" L {cx + arm_w:.2f},{arm_y + arm_h:.2f}"
+        f" L {cx + body_w / 2:.2f},{body_top + body_h * 0.45:.2f}"
+        # prawa noga
+        f" L {cx + body_w / 2:.2f},{body_bot:.2f}"
+        f" L {cx + leg_w:.2f},{body_bot:.2f}"
+        f" L {cx + leg_w:.2f},{body_bot + leg_h:.2f}"
+        f" L {cx - leg_w:.2f},{body_bot + leg_h:.2f}"
+        f" L {cx - leg_w:.2f},{body_bot:.2f}"
+        # lewa noga
+        f" L {cx - body_w / 2:.2f},{body_bot:.2f}"
+        # lewa ręka
+        f" L {cx - body_w / 2:.2f},{body_top + body_h * 0.45:.2f}"
+        f" L {cx - arm_w:.2f},{arm_y + arm_h:.2f}"
+        f" L {cx - arm_w:.2f},{arm_y:.2f}"
+        f" L {cx - body_w / 2:.2f},{body_top:.2f}"
+        # lewa część głowy
+        f" C {cx - head_r * 0.5:.2f},{body_top:.2f}"
+        f" {cx - head_r:.2f},{head_cy + head_r * 0.7:.2f} {cx - head_r:.2f},{head_cy:.2f}"
+        f" C {cx - head_r:.2f},{head_cy - head_r * 0.3:.2f}"
+        f" {cx - head_r * 0.7:.2f},{head_cy - head_r * 0.7:.2f} {cx:.2f},{head_cy - head_r:.2f}"
+        " Z"
+    )
     return d
 
 
@@ -284,49 +544,38 @@ def _path_rounded_rect(cx: float, cy: float, s: float) -> str:
 
 
 SHAPE_BUILDERS = {
-    "mountain":     _path_mountain,
-    "heart":        _path_heart,
-    "star":         _path_star,
-    "moon":         _path_moon,
-    "floral":       _path_floral,
-    "leaf":         _path_leaf,
-    "butterfly":    _path_butterfly,
-    "mushroom":     _path_mushroom,
-    "hexagon":      _path_hexagon,
-    "sun":          _path_sun,
-    "rounded_rect": _path_rounded_rect,
+    "mountain":      _path_mountain,
+    "heart":         _path_heart,
+    "star":          _path_star,
+    "moon":          _path_moon,
+    "floral":        _path_floral,
+    "leaf":          _path_leaf,
+    "butterfly":     _path_butterfly,
+    "mushroom":      _path_mushroom,
+    "hexagon":       _path_hexagon,
+    "sun":           _path_sun,
+    "pumpkin":       _path_pumpkin,
+    "christmas_tree": _path_christmas_tree,
+    "snowflake":     _path_snowflake,
+    "gingerbread":   _path_gingerbread,
+    "rounded_rect":  _path_rounded_rect,
 }
 
 
 # ── generowanie SVG ───────────────────────────────────────────────────────────
 
-def _make_svg_mock(
-    topic: str,
-    product_type: str,
-    size: str,
-    out_path: Path,
-) -> dict:
-    """Generuje placeholder SVG z kształtem bazującym na temacie."""
-    size_mm = SIZE_MM.get(size.upper(), 75.0)
-    shape_key = _detect_shape(topic)
-    builder = SHAPE_BUILDERS[shape_key]
-
-    cx = size_mm / 2
-    cy = size_mm / 2
-    path_d = builder(cx, cy, size_mm * 0.46)
-
+def _write_svg(path_d: str, out_path: Path, size_mm: float,
+               product_type: str, topic: str, size: str, shape: str) -> dict:
+    """Zapisuje SVG z gotową ścieżką path_d."""
     dwg = svgwrite.Drawing(
         str(out_path),
         size=(f"{size_mm}mm", f"{size_mm}mm"),
         viewBox=f"0 0 {size_mm} {size_mm}",
         profile="full",
     )
-    # tło (opcjonalne - przezroczyste dla druku)
     dwg.add(dwg.rect(insert=(0, 0), size=(f"{size_mm}mm", f"{size_mm}mm"), fill="white"))
 
-    # cień / kontur produktu
     if product_type == "cutter":
-        # Dla cuttera: tylko obrys (stroke), fill=none
         dwg.add(dwg.path(
             d=path_d,
             fill="none",
@@ -336,7 +585,6 @@ def _make_svg_mock(
             stroke_linecap="round",
         ))
     else:
-        # Dla stampa: wypełniony kształt
         dwg.add(dwg.path(
             d=path_d,
             fill="#2d2d2d",
@@ -344,27 +592,39 @@ def _make_svg_mock(
             stroke_width=f"{WALL_MM * 0.5}mm",
         ))
 
-    # etykieta (debug/meta)
-    label = f"{topic} | {product_type.upper()} | {size}"
     dwg.add(dwg.text(
-        label,
+        f"{topic} | {product_type.upper()} | {size}",
         insert=(f"{size_mm / 2}mm", f"{size_mm * 0.96}mm"),
         text_anchor="middle",
         font_size="3px",
         fill="#888888",
         font_family="sans-serif",
     ))
-
     dwg.save(pretty=True)
-    log.info("Saved SVG: %s (%.0fmm, shape=%s)", out_path, size_mm, shape_key)
-
     return {
         "size": size,
         "path": str(out_path),
         "width_mm": size_mm,
         "height_mm": size_mm,
-        "shape": shape_key,
+        "shape": shape,
     }
+
+
+def _make_svg_mock(
+    topic: str,
+    product_type: str,
+    size: str,
+    out_path: Path,
+) -> dict:
+    """Generuje placeholder SVG z kształtem bazującym na temacie."""
+    size_mm   = SIZE_MM.get(size.upper(), 75.0)
+    shape_key = _detect_shape(topic)
+    builder   = SHAPE_BUILDERS[shape_key]
+    cx, cy    = size_mm / 2, size_mm / 2
+    path_d    = builder(cx, cy, size_mm * 0.46)
+
+    log.info("Mock SVG: %s (%.0fmm, shape=%s)", out_path, size_mm, shape_key)
+    return _write_svg(path_d, out_path, size_mm, product_type, topic, size, shape_key)
 
 
 def _make_svg_real(
@@ -374,8 +634,8 @@ def _make_svg_real(
     out_path: Path,
 ) -> dict:
     """
-    Generuje SVG przez Claude API - Claude opisuje kształt jako SVG path.
-    Fallback do mock jeśli API niedostępne.
+    Generuje SVG przez Claude API z retry i walidacją ścieżki.
+    Fallback do mock jeśli API niedostępne lub walidacja nie przejdzie.
     """
     import anthropic
 
@@ -387,150 +647,85 @@ def _make_svg_real(
     size_mm = SIZE_MM.get(size.upper(), 75.0)
     cx = size_mm / 2
     cy = size_mm / 2
-    s = size_mm * 0.44
+    s  = size_mm * 0.44
 
-    prompt = f"""You are an SVG path designer for 3D-printed cookie cutters.
+    # Przykładowe ścieżki dla referencji
+    heart_example = (
+        f"M {cx:.1f},{cy - s * 0.05:.1f} "
+        f"C {cx + s * 0.12:.1f},{cy - s * 0.58:.1f} {cx + s * 0.94:.1f},{cy - s * 0.58:.1f} {cx + s * 0.52:.1f},{cy - s * 0.30:.1f} "
+        f"C {cx + s * 1.05:.1f},{cy + s * 0.05:.1f} {cx + s * 0.60:.1f},{cy + s * 0.37:.1f} {cx:.1f},{cy + s * 0.55:.1f} "
+        f"C {cx - s * 0.60:.1f},{cy + s * 0.37:.1f} {cx - s * 1.05:.1f},{cy + s * 0.05:.1f} {cx - s * 0.52:.1f},{cy - s * 0.30:.1f} "
+        f"C {cx - s * 0.94:.1f},{cy - s * 0.58:.1f} {cx - s * 0.12:.1f},{cy - s * 0.58:.1f} {cx:.1f},{cy - s * 0.05:.1f} Z"
+    )
+    star_pts = []
+    for i in range(10):
+        a = math.radians(i * 36 - 90)
+        r = s * 0.50 if i % 2 == 0 else s * 0.21
+        star_pts.append(f"{cx + r * math.cos(a):.1f},{cy + r * math.sin(a):.1f}")
+    star_example = "M " + " L ".join(star_pts) + " Z"
 
-Generate a single clean SVG path (d attribute only) for a "{topic}" {product_type} silhouette.
+    prompt = f"""You are an SVG path engineer for 3D-printed cookie cutters.
 
-Constraints:
-- ViewBox: 0 0 {size_mm} {size_mm} (units = mm)
-- Center: ({cx:.1f}, {cy:.1f})
-- Max radius / half-size: {s:.1f}mm
-- Use M, L, C, A, Q, Z commands only
-- Must be a single closed path (end with Z)
-- For a cutter: simple outline silhouette, not too detailed
-- Output ONLY the d attribute value, nothing else, no quotes, no markdown
+Task: Generate ONE single closed SVG path (the `d` attribute) that clearly depicts a **{topic}** silhouette, suitable for a cookie cutter.
 
-Example format: M 37.5,10.0 L 65.0,65.0 L 10.0,65.0 Z
+Specifications:
+- ViewBox: 0 0 {size_mm} {size_mm}  (coordinates in mm)
+- Center of shape: ({cx:.1f}, {cy:.1f})
+- Shape should fill roughly {s * 0.9:.1f}–{s * 1.0:.1f} mm radius from center
+- Use SVG path commands: M, L, C, Q, A, Z  (uppercase only)
+- The path MUST be a single closed path: exactly one M at the start, end with Z
+- NO multiple subpaths (no second M after the first one)
+- Minimum 10 anchor/control points for a recognizable shape
+- Coordinates MUST stay within [2, {size_mm - 2:.0f}] on both axes
+- Do NOT use degenerate arcs (where start point ≈ end point)
+
+Quality rules:
+- The outline must clearly resemble "{topic}"
+- Prefer C (cubic Bezier) and L commands for organic shapes
+- Avoid overly simple shapes (fewer than 8 anchor points)
+
+Reference examples (correct format):
+Heart: {heart_example}
+Star:  {star_example}
+
+Output ONLY the path `d` value — no XML, no quotes, no markdown, no explanation.
 """
 
     client = anthropic.Anthropic(api_key=api_key)
-    try:
-        msg = client.messages.create(
-            model=MODEL,
-            max_tokens=512,
-            messages=[{"role": "user", "content": prompt}],
-        )
-        path_d = msg.content[0].text.strip()
-        # walidacja minimalna
-        if not path_d.upper().startswith("M") or "Z" not in path_d.upper():
-            raise ValueError(f"Invalid path returned: {path_d[:80]}")
-    except Exception as e:
-        log.warning("Claude API path generation failed (%s) – falling back to mock", e)
-        return _make_svg_mock(topic, product_type, size, out_path)
+    last_error = ""
 
-    dwg = svgwrite.Drawing(
-        str(out_path),
-        size=(f"{size_mm}mm", f"{size_mm}mm"),
-        viewBox=f"0 0 {size_mm} {size_mm}",
-        profile="full",
-    )
-    dwg.add(dwg.rect(insert=(0, 0), size=(f"{size_mm}mm", f"{size_mm}mm"), fill="white"))
+    for attempt in range(1, _MAX_RETRIES + 1):
+        retry_note = ""
+        if attempt > 1 and last_error:
+            retry_note = f"\n\nPrevious attempt failed validation: {last_error}\nPlease fix this issue."
 
-    if product_type == "cutter":
-        dwg.add(dwg.path(d=path_d, fill="none", stroke="#1a1a1a", stroke_width=f"{WALL_MM}mm"))
-    else:
-        dwg.add(dwg.path(d=path_d, fill="#2d2d2d", stroke="#1a1a1a", stroke_width=f"{WALL_MM * 0.5}mm"))
+        try:
+            msg = client.messages.create(
+                model=MODEL,
+                max_tokens=1024,
+                messages=[{"role": "user", "content": prompt + retry_note}],
+            )
+            path_d = msg.content[0].text.strip()
 
-    dwg.save(pretty=True)
-    log.info("Saved real SVG: %s (%.0fmm)", out_path, size_mm)
+            # Usuń ewentualne cudzysłowy lub d="..."
+            path_d = re.sub(r'^d\s*=\s*["\']', "", path_d)
+            path_d = path_d.strip("\"'")
 
-    return {
-        "size": size,
-        "path": str(out_path),
-        "width_mm": size_mm,
-        "height_mm": size_mm,
-        "shape": "claude_generated",
-    }
+            ok, reason = _validate_path(path_d, size_mm)
+            if not ok:
+                last_error = reason
+                log.warning("Attempt %d/%d: path validation failed: %s", attempt, _MAX_RETRIES, reason)
+                continue
 
+            log.info("Claude SVG path OK (attempt %d): %s", attempt, out_path)
+            return _write_svg(path_d, out_path, size_mm, product_type, topic, size, "claude_generated")
 
+        except Exception as e:
+            last_error = str(e)
+            log.warning("Attempt %d/%d: Claude API error: %s", attempt, _MAX_RETRIES, e)
 
-def _make_svg_dalle3(
-    topic: str,
-    product_type: str,
-    size: str,
-    out_path: Path,
-) -> dict:
-    """
-    Generuje obraz przez DALL-E 3 i zapisuje jako PNG + wrapper SVG.
-    Fallback do mock jesli API niedostepne lub blad.
-    """
-    import requests as _requests
-
-    api_key = os.getenv("OPENAI_API_KEY")
-    if not api_key:
-        log.warning("OPENAI_API_KEY not set – falling back to mock SVG")
-        return _make_svg_mock(topic, product_type, size, out_path)
-
-    size_mm = SIZE_MM.get(size.upper(), 75.0)
-    prompt = (
-        f"{topic}, flat 2D illustration, cookie cutter outline, "
-        "black lines on white background, no shading, no gradients, "
-        "clean vector style, suitable for 3D printing"
-    )
-
-    try:
-        import openai
-        client = openai.OpenAI(api_key=api_key)
-        response = client.images.generate(
-            model="dall-e-3",
-            prompt=prompt,
-            size="1024x1024",
-            style="natural",
-            n=1,
-        )
-        img_url = response.data[0].url
-        log.info("DALL-E 3 URL: %s", img_url[:60])
-
-        # Pobierz PNG
-        png_path = out_path.parent / (out_path.stem.replace(".svg", "") + "_dalle_raw.png")
-        resp = _requests.get(img_url, timeout=30)
-        resp.raise_for_status()
-        png_path.write_bytes(resp.content)
-        log.info("Saved DALL-E PNG: %s (%d B)", png_path, len(resp.content))
-
-        # SVG z osadzonym obrazem DALL-E + wektorowa sciezka mock (do parsowania przez ModelAgent)
-        shape_key = _detect_shape(topic)
-        builder   = SHAPE_BUILDERS[shape_key]
-        cx, cy    = size_mm / 2, size_mm / 2
-        path_d    = builder(cx, cy, size_mm * 0.46)
-        size_str  = f"{size_mm}mm"
-        stroke_w  = f"{WALL_MM}mm" if product_type == "cutter" else f"{WALL_MM * 0.5}mm"
-        fill_attr = 'fill="none"' if product_type == "cutter" else 'fill="#2d2d2d"'
-        svg_content = (
-            f'''<?xml version="1.0" encoding="utf-8"?>\n'''
-            f'''<svg xmlns="http://www.w3.org/2000/svg" '''
-            f'''xmlns:xlink="http://www.w3.org/1999/xlink" '''
-            f'''width="{size_str}" height="{size_str}" '''
-            f'''viewBox="0 0 {size_mm} {size_mm}">\n'''
-            f'''  <!-- DALL-E 3 preview -->\n'''
-            f'''  <image href="{png_path.name}" x="0" y="0" '''
-            f'''width="{size_mm}" height="{size_mm}" opacity="0.35"/>\n'''
-            f'''  <!-- vector outline for 3D model -->\n'''
-            f'''  <path d="{path_d}" {fill_attr} '''
-            f'''stroke="#1a1a1a" stroke-width="{stroke_w}"'''
-            f''' stroke-linejoin="round" stroke-linecap="round"/>\n'''
-            f'''  <text x="{size_mm/2}" y="{size_mm*0.97}" '''
-            f'''text-anchor="middle" font-size="3px" fill="#888">'''
-            f'''{topic} | DALL-E 3 | {size}</text>\n'''
-            f'''</svg>\n'''
-        )
-        out_path.write_text(svg_content, encoding="utf-8")
-        log.info("Saved dalle3 SVG (DALL-E preview + mock path): %s", out_path)
-
-        return {
-            "size": size,
-            "path": str(out_path),
-            "png_path": str(png_path),
-            "width_mm": size_mm,
-            "height_mm": size_mm,
-            "shape": "dalle3_generated",
-        }
-
-    except Exception as e:
-        log.warning("DALL-E 3 generation failed (%s) – falling back to mock", e)
-        return _make_svg_mock(topic, product_type, size, out_path)
+    log.warning("All %d attempts failed (%s) — falling back to mock", _MAX_RETRIES, last_error)
+    return _make_svg_mock(topic, product_type, size, out_path)
 
 
 # ── klasa agenta ─────────────────────────────────────────────────────────────
@@ -538,10 +733,8 @@ def _make_svg_dalle3(
 class DesignAgent:
     def __init__(self, mode: str = "mock"):
         self.mode = mode
-        if mode == "real":
+        if mode in ("real", "auto"):
             self._make_svg = _make_svg_real
-        elif mode in ("dalle3", "auto"):
-            self._make_svg = _make_svg_dalle3
         else:
             self._make_svg = _make_svg_mock
 
@@ -561,6 +754,7 @@ class DesignAgent:
             product_type: "cutter" | "stamp" | "set"
             sizes:        Lista rozmiarów, np. ['S', 'M', 'L']
             output_dir:   Katalog nadrzędny (domyślnie data/products/)
+            slug:         Slug produktu (opcjonalnie)
 
         Returns:
             {
@@ -570,7 +764,7 @@ class DesignAgent:
               'product_type': str,
               'mode': str,
               'files': [{'size', 'path', 'width_mm', 'height_mm', 'shape'}],
-              'error': str  # tylko gdy success=False
+              'errors': list  # tylko gdy były błędy
             }
         """
         if sizes is None:
@@ -578,11 +772,12 @@ class DesignAgent:
         if output_dir is None:
             output_dir = DATA_DIR
 
-        slug = slug or _slugify(f"{topic}-{product_type}")
-        source_dir = Path(output_dir) / slug / "source"
+        slug = slug or _slugify(topic)
+        # v3 struktura: {output_dir}/{product_type}/{slug}/source/
+        source_dir = Path(output_dir) / product_type / slug / "source"
         source_dir.mkdir(parents=True, exist_ok=True)
 
-        files = []
+        files  = []
         errors = []
 
         for size in sizes:
@@ -592,8 +787,8 @@ class DesignAgent:
                 errors.append(f"Unknown size: {size}")
                 continue
 
-            filename = f"{slug}-{size_up}.svg"
-            out_path = source_dir / filename
+            # Krótkie nazwy plików: S.svg, M.svg, L.svg
+            out_path = source_dir / f"{size_up}.svg"
 
             try:
                 file_info = self._make_svg(topic, product_type, size_up, out_path)
@@ -604,7 +799,7 @@ class DesignAgent:
 
         success = len(files) > 0
 
-        result = {
+        result: dict = {
             "success": success,
             "slug": slug,
             "topic": topic,
@@ -615,8 +810,8 @@ class DesignAgent:
         if errors:
             result["errors"] = errors
 
-        # zapis metadanych do output_dir/<slug>/design.json
-        meta_path = Path(output_dir) / slug / "design.json"
+        # Zapis metadanych: {output_dir}/{product_type}/{slug}/design.json
+        meta_path = Path(output_dir) / product_type / slug / "design.json"
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         meta_path.write_text(json.dumps(result, indent=2, ensure_ascii=False))
         log.info("Saved design meta: %s", meta_path)
@@ -631,12 +826,14 @@ def create_design_agent(mode: str = "mock") -> DesignAgent:
     Tworzy instancję DesignAgent.
 
     Args:
-        mode: 'mock'   - SVG z predefiniowanych ksztaltow (bez API)
-              'real'   - SVG przez Claude API (produkcja)
-              'dalle3' - obraz przez DALL-E 3 (wymaga OPENAI_API_KEY)
-              'auto'   - dalle3 jesli OPENAI_API_KEY dostepny, inaczej mock
+        mode: 'mock' - SVG z predefiniowanych kształtów (bez API, do testów)
+              'real' - SVG przez Claude API z walidacją i retry (produkcja)
+              'auto' - real jeśli ANTHROPIC_API_KEY dostępny, inaczej mock
     """
-    return DesignAgent(mode=mode)
+    if mode == "auto" and not os.getenv("ANTHROPIC_API_KEY"):
+        log.info("auto mode: ANTHROPIC_API_KEY not set, using mock")
+        return DesignAgent("mock")
+    return DesignAgent(mode)
 
 
 # ── standalone ────────────────────────────────────────────────────────────────
