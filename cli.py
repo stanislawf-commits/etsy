@@ -389,5 +389,105 @@ def publish_product(slug):
     console.print(f"\n[dim]Status w meta.json: listed[/dim]\n")
 
 
+@cli.command("stats")
+def stats():
+    """Statystyki pipeline — liczby produktów, statusy, przychody."""
+    from src.db.session import init_db, get_session
+    from src.db.models import Product
+    from sqlmodel import select, func
+
+    init_db()
+
+    with get_session() as session:
+        # model_dump() odłącza dane od sesji — bezpieczne poza kontekstem
+        all_products = [p.model_dump() for p in session.exec(select(Product)).all()]
+
+    if not all_products:
+        # Fallback: czytaj z JSON jeśli DB pusta
+        from src.utils.product_io import load_all_products
+        raw = load_all_products()
+        all_products = [{
+            "slug":         p["slug"],
+            "status":       p["meta"].get("status", "draft"),
+            "price":        p["listing"].get("price_suggestion"),
+            "product_type": p["meta"].get("product_type", "cutter"),
+            "render_engine":p["meta"].get("render_engine"),
+        } for p in raw]
+
+    # ── Zlicz statusy ──
+    status_counts: dict[str, int] = {}
+    type_counts:   dict[str, int] = {}
+    total_revenue  = 0.0
+    blender_count  = 0
+
+    for p in all_products:
+        s = p.get("status", "draft") if isinstance(p, dict) else p.status
+        status_counts[s] = status_counts.get(s, 0) + 1
+        t = p.get("product_type", "cutter") if isinstance(p, dict) else p.product_type
+        type_counts[t] = type_counts.get(t, 0) + 1
+        price = (p.get("price") if isinstance(p, dict) else p.price)
+        if price and s in ("listed", "ready_for_publish"):
+            total_revenue += float(price)
+        eng = p.get("render_engine") if isinstance(p, dict) else p.render_engine
+        if eng == "blender":
+            blender_count += 1
+
+    total = len(all_products)
+
+    # ── Tabela statusów ──
+    console.print()
+    st_table = Table(title="Produkty wg statusu", show_header=True, header_style="bold cyan")
+    st_table.add_column("Status",  style="dim")
+    st_table.add_column("Liczba",  justify="right")
+    st_table.add_column("% całości", justify="right")
+
+    STATUS_COLORS = {
+        "ready_for_publish": "green",
+        "listed":            "bold green",
+        "draft":             "yellow",
+        "design_error":      "red",
+        "model_error":       "red",
+    }
+    for status_key, count in sorted(status_counts.items(), key=lambda x: -x[1]):
+        color = STATUS_COLORS.get(status_key, "white")
+        pct   = f"{count/total*100:.0f}%"
+        st_table.add_row(f"[{color}]{status_key}[/{color}]", str(count), pct)
+    console.print(st_table)
+
+    # ── Typy produktów ──
+    tp_table = Table(title="Typy produktów", show_header=True, header_style="bold cyan")
+    tp_table.add_column("Typ",    style="dim")
+    tp_table.add_column("Liczba", justify="right")
+    for pt, cnt in sorted(type_counts.items(), key=lambda x: -x[1]):
+        tp_table.add_row(pt, str(cnt))
+    console.print(tp_table)
+
+    # ── Podsumowanie ──
+    console.print()
+    console.print(f"  Wszystkich produktów:  [bold]{total}[/bold]")
+    console.print(f"  Gotowych do pub:       [green]{status_counts.get('ready_for_publish', 0)}[/green]")
+    console.print(f"  Opublikowanych:        [bold green]{status_counts.get('listed', 0)}[/bold green]")
+    console.print(f"  Potencjalny przychód:  [bold cyan]{total_revenue:.2f} EUR[/bold cyan]")
+    console.print(f"  Blender renders:       {blender_count}/{total}")
+    console.print()
+
+
+@cli.command("db-migrate")
+@click.option("--dry", is_flag=True, help="Podgląd bez zapisu do DB")
+def db_migrate(dry):
+    """Migruje produkty z flat JSON do SQLite."""
+    from src.db.migrate import migrate
+
+    console.print(f"[bold]Migracja produktów do SQLite{'  (dry run)' if dry else ''}[/bold]\n")
+    stats = migrate(dry_run=dry)
+
+    console.print(f"  Migrowanych: [green]{stats['migrated']}[/green]")
+    console.print(f"  Błędów:      [{'red' if stats['errors'] else 'dim'}]{stats['errors']}[/]")
+
+    if not dry:
+        from src.db.session import DB_PATH
+        console.print(f"\n[dim]Baza: {DB_PATH}[/dim]")
+
+
 if __name__ == "__main__":
     cli()
