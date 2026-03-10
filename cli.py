@@ -628,6 +628,67 @@ def stats():
         pass  # ListingStats tabela może nie istnieć w starej DB — ignoruj
 
 
+@cli.command("trend-scan")
+@click.option("--max-new", default=3, show_default=True, help="Max nowych produktów na jedno uruchomienie")
+@click.option("--dry", is_flag=True, help="Pokaż sugestie bez tworzenia produktów")
+def trend_scan(max_new, dry):
+    """Skanuje trendy i tworzy nowe drafty automatycznie (cron-friendly)."""
+    from src.jobs.daily_trend_scan import run_scan
+
+    console.print(f"[bold]Trend scan{'  (dry run)' if dry else ''}[/bold]  max-new={max_new}\n")
+    result = run_scan(max_new=max_new, dry_run=dry)
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Temat")
+    table.add_column("Akcja")
+    table.add_column("Slug / Info", style="dim")
+
+    for s in result.get("suggestions", []):
+        action = s.get("action", "?")
+        color  = "green" if action == "created" else \
+                 "yellow" if action in ("skipped", "dry_run") else "red"
+        info   = s.get("slug") or s.get("reason") or s.get("error") or ""
+        table.add_row(s.get("topic", "?"), f"[{color}]{action}[/{color}]", info)
+
+    console.print(table)
+    console.print(
+        f"\n  Utworzono: [bold green]{result['created']}[/bold green]"
+        f"  Pominięto: {result['skipped']}"
+        f"  Błędów: [{'red' if result['errors'] else 'dim'}]{result['errors']}[/]"
+    )
+
+
+@cli.command("restock-check")
+@click.option("--dry", is_flag=True, help="Pokaż alerty bez zapisu do DB")
+def restock_check(dry):
+    """Sprawdza stan magazynu i generuje alerty / redruki."""
+    from src.jobs.restock_alert import run_check
+
+    console.print(f"[bold]Restock check{'  (dry run)' if dry else ''}[/bold]\n")
+    result = run_check(dry_run=dry)
+
+    console.print(f"  Sprawdzonych: [bold]{result['checked']}[/bold]")
+    console.print(f"  Alertów:      [{'yellow' if result['alerts'] else 'dim'}]{result['alerts']}[/]")
+    console.print(f"  Redruki:      {result['reprints_triggered']}")
+
+    if result["alerts"] == 0:
+        console.print("\n[dim green]Wszystkie produkty mają wystarczający stan.[/dim green]")
+
+
+@cli.command("webhook-serve")
+@click.option("--port", default=None, type=int, help="Port HTTP (domyślnie z etsy.yaml: 8765)")
+def webhook_serve(port):
+    """Uruchamia serwer webhook Etsy (odbiera zdarzenia sprzedaży)."""
+    from src.webhooks.etsy_webhook import start_server
+
+    effective_port = port or 8765
+    console.print(f"[bold]Webhook server[/bold]  port={effective_port}")
+    console.print("  Endpoint: [cyan]POST /etsy/webhook[/cyan]")
+    console.print("  Health:   [cyan]GET  /health[/cyan]")
+    console.print("\n[dim]Ctrl+C aby zatrzymać[/dim]\n")
+    start_server(port=port)
+
+
 @cli.command("db-migrate")
 @click.option("--dry", is_flag=True, help="Podgląd bez zapisu do DB")
 def db_migrate(dry):

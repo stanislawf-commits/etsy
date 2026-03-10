@@ -14,6 +14,8 @@ api:
   requests_per_second: 5
   retry_attempts: 3
   retry_backoff_seconds: 2
+  # Webhook
+  webhook_port: 8765
 
 listing:
   # Etsy taxonomy — kategoria "Cookie Cutters & Stamps"
@@ -31,6 +33,11 @@ listing:
   shipping_template_id: null
   # Ilość na stanie
   quantity: 999
+
+restock:
+  threshold: 3              # alert gdy stock_quantity <= threshold
+  action: "log_only"        # "log_only" | "auto_reprint"
+  cooldown_hours: 24        # nie powtarzaj alertu dla tego samego slug przez N godzin
 
 images:
   # Kolejność uploadowania zdjęć (Etsy wymaga rankingu)
