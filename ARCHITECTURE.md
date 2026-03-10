@@ -153,10 +153,12 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] STL walidacja: trimesh (watertight, volume, normals — graceful fallback)
 - [x] Testy: 55 passing (conftest, fixtures, mock_anthropic, wszystkie agenty)
 
-### Faza 3 — Jakość wizualna (NASTĘPNA)
-- [ ] render_agent v2: Blender headless LTS dla realistycznego 3D
-- [ ] Fallback: obecny Pillow gdy brak Blendera
-- [ ] Lepsze mockupy lifestyle (tło, cienie, realistyczny kontekst)
+### Faza 3 — Jakość wizualna ✅ UKOŃCZONA (2026-03-10)
+- [x] blender_render_agent.py: Blender 4.0.2 headless, EEVEE renderer
+- [x] 3-point lighting, PLA material, 5 trybów (hero/lifestyle/detail/sizes/info)
+- [x] Pillow post-processing: badge overlay, tekst, info panel
+- [x] Auto-fallback na Pillow gdy brak Blendera
+- [x] orchestrator używa BlenderRenderAgent jako domyślny
 
 ### Faza 4 — Skalowalność
 - [ ] SQLite + SQLModel zamiast flat JSON (> 50 produktów)
