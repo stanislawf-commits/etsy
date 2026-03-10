@@ -166,10 +166,10 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] Etsy Analytics API integration (views, favorites) — analytics-sync + ListingStats
 - [x] Batch processing: `new-product --batch N`
 
-### Faza 5 — Automatyzacja
-- [ ] Cron job: daily trend scan → auto draft
-- [ ] Webhook Etsy → update meta po sprzedaży
-- [ ] Restock alert: auto-reprint gdy zapas < 3
+### Faza 5 — Automatyzacja ✅ UKOŃCZONA (2026-03-10)
+- [x] Cron job: daily trend scan → auto draft (`trend-scan`)
+- [x] Webhook Etsy → update meta po sprzedaży (`webhook-serve`, RECEIPT_PAID)
+- [x] Restock alert: alerty + optional auto_reprint (`restock-check`)
 
 ---
 
