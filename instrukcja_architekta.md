@@ -188,25 +188,20 @@ git filter-branch --force --index-filter \
 
 Aktualizuj gdy coś się zmienia.
 
-1. **Faza 1 — Fundament** (w toku)
-   - [x] ARCHITECTURE.md
-   - [x] config/*.yaml
-   - [x] utils/config_loader.py
-   - [x] utils/product_io.py
-   - [x] utils/claude_client.py
-   - [x] listing_agent.py (używa utils)
-   - [x] trend_agent.py (pytrends + config)
-   - [ ] orchestrator.py (używa product_io)
-   - [ ] etsy_agent.py (używa etsy.yaml)
-   - [ ] render_agent.py (używa etsy.yaml dla kolejności)
+1. **Faza 1 — Fundament** ✅ UKOŃCZONA
+   - [x] ARCHITECTURE.md, instrukcja_architekta.md
+   - [x] config/*.yaml (pricing, product_types, etsy, trends)
+   - [x] utils/ (config_loader, product_io, claude_client)
+   - [x] Wszystkie agenty używają utils
 
-2. **Faza 2 — Jakość danych**
-   - [ ] trimesh STL validation w model_agent
-   - [ ] Testy dla wszystkich agentów
-   - [ ] fixtures/ dla testów
+2. **Faza 2 — Jakość danych** ✅ UKOŃCZONA
+   - [x] trimesh STL validation (watertight, volume)
+   - [x] model_agent: wymiary z config
+   - [x] 55 testów, fixtures, mock_anthropic
 
-3. **Faza 3 — Wizualna**
-   - [ ] Blender headless rendering (lub lepsza alternatywa)
+3. **Faza 3 — Wizualna** (NASTĘPNA)
+   - [ ] Blender headless rendering
+   - [ ] Lepsze mockupy lifestyle
 
 ---
 

@@ -140,23 +140,23 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 
 ## Priorytety rozwoju (Roadmap)
 
-### Faza 1 — Fundament (bieżąca)
+### Faza 1 — Fundament ✅ UKOŃCZONA (2026-03-10)
 - [x] Architektura v1 (pipeline end-to-end)
-- [ ] `config/*.yaml` — wyciągnięcie hardcode
-- [ ] `src/utils/product_io.py` — centralny I/O
-- [ ] `src/utils/claude_client.py` — centralny klient Claude
-- [ ] `src/utils/config_loader.py` — ładowanie YAML
+- [x] `config/*.yaml` — pricing, product_types, etsy, trends
+- [x] `src/utils/product_io.py` — centralny I/O
+- [x] `src/utils/claude_client.py` — centralny klient Claude z retry
+- [x] `src/utils/config_loader.py` — cachowane ładowanie YAML
+- [x] listing_agent, trend_agent, etsy_agent, orchestrator, render_agent — używają utils
 
-### Faza 2 — Jakość danych
-- [ ] TrendAgent v2: pytrends (Google Trends) + fallback statyczny
-- [ ] STL walidacja: trimesh (watertight, min trójkątów)
-- [ ] listing_agent: użycie claude_client + config
-- [ ] Pełne pokrycie testami (fixtures, mocki)
+### Faza 2 — Jakość danych ✅ UKOŃCZONA (2026-03-10)
+- [x] model_agent: wymiary z product_types.yaml
+- [x] STL walidacja: trimesh (watertight, volume, normals — graceful fallback)
+- [x] Testy: 55 passing (conftest, fixtures, mock_anthropic, wszystkie agenty)
 
-### Faza 3 — Jakość wizualna
+### Faza 3 — Jakość wizualna (NASTĘPNA)
 - [ ] render_agent v2: Blender headless LTS dla realistycznego 3D
 - [ ] Fallback: obecny Pillow gdy brak Blendera
-- [ ] Mockupy lifestyle (Placeit-style overlay)
+- [ ] Lepsze mockupy lifestyle (tło, cienie, realistyczny kontekst)
 
 ### Faza 4 — Skalowalność
 - [ ] SQLite + SQLModel zamiast flat JSON (> 50 produktów)
