@@ -11,3 +11,5 @@ dist/
 build/
 .pytest_cache/
 .mypy_cache/
+2.env
+.env*
