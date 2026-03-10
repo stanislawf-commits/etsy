@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="75.0mm" version="1.1" viewBox="0 0 75.0 75.0" width="75.0mm">
+  <defs/>
+  <rect fill="white" height="75.0mm" width="75.0mm" x="0" y="0"/>
+  <path d="M 37.5,5.0 L 58.0,22.0 L 58.0,22.0 L 62.0,22.0 L 62.0,22.0 L 62.0,20.0 L 70.0,20.0 L 70.0,30.0 L 62.0,30.0 L 62.0,28.0 L 62.0,45.0 L 65.0,45.0 L 65.0,70.0 L 54.0,70.0 L 54.0,55.0 L 46.0,55.0 L 46.0,70.0 L 29.0,70.0 L 29.0,55.0 L 21.0,55.0 L 21.0,70.0 L 10.0,70.0 L 10.0,45.0 L 13.0,45.0 L 13.0,28.0 L 13.0,22.0 L 17.0,22.0 L 37.5,5.0 Z" fill="none" stroke="#1a1a1a" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5mm"/>
+  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="37.5mm" y="72.0mm">gingerbread house | CUTTER | M</text>
+</svg>

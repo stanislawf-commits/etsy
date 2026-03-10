@@ -1,0 +1,23 @@
+{
+  "id": "18f6bfb6-0d4d-47e5-905f-fd6b2af888b5",
+  "slug": "halloween-pumpkin",
+  "topic": "halloween pumpkin",
+  "product_type": "cutter",
+  "size": "M",
+  "status": "model_error",
+  "created_at": "2026-03-10T22:36:23.479540+00:00",
+  "updated_at": "2026-03-10T22:37:14.065680+00:00",
+  "design": {
+    "mode": "auto",
+    "success": true
+  },
+  "models": {
+    "success": false,
+    "sizes": [],
+    "stl_count": 0
+  },
+  "renders": {
+    "success": false,
+    "count": 0
+  }
+}

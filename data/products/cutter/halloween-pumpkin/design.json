@@ -1,0 +1,30 @@
+{
+  "success": true,
+  "slug": "halloween-pumpkin",
+  "topic": "halloween pumpkin",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "S",
+      "path": "/home/dell/etsy3d/data/products/cutter/halloween-pumpkin/source/S.svg",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "claude_generated"
+    },
+    {
+      "size": "M",
+      "path": "/home/dell/etsy3d/data/products/cutter/halloween-pumpkin/source/M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "claude_generated"
+    },
+    {
+      "size": "L",
+      "path": "/home/dell/etsy3d/data/products/cutter/halloween-pumpkin/source/L.svg",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "claude_generated"
+    }
+  ]
+}

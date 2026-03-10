@@ -1,0 +1,23 @@
+{
+  "id": "df11dde5-f9b2-4661-80bf-f25315b59cf2",
+  "slug": "easter-egg",
+  "topic": "easter egg",
+  "product_type": "cutter",
+  "size": "M",
+  "status": "model_error",
+  "created_at": "2026-03-10T22:32:25.089896+00:00",
+  "updated_at": "2026-03-10T22:32:40.624964+00:00",
+  "design": {
+    "mode": "auto",
+    "success": true
+  },
+  "models": {
+    "success": false,
+    "sizes": [],
+    "stl_count": 0
+  },
+  "renders": {
+    "success": false,
+    "count": 0
+  }
+}
