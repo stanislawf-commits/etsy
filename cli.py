@@ -59,36 +59,23 @@ def health():
 
 
 @cli.command("new-product")
-@click.argument("name")
-@click.option("--category", "-c", default="decor", show_default=True,
-              help="Kategoria produktu (decor, jewelry, tools, toys)")
-@click.option("--description", "-d", default="", help="Opis produktu")
-def new_product(name, category, description):
-    """Tworzy nowy produkt i uruchamia pipeline generowania."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+@click.argument("name", required=False, default=None)
+@click.option("--type", "-t", "product_type", default="cutter", show_default=True,
+              help="Typ produktu: cutter | stamp | set")
+@click.option("--size", "-s", default="M", show_default=True,
+              help="Rozmiar: XS | S | M | L | XL")
+def new_product(name, product_type, size):
+    """Tworzy nowy produkt przez pipeline (TrendAgent + ListingAgent).
 
-    slug = name.lower().replace(" ", "-")
-    product_file = DATA_DIR / f"{slug}.json"
+    NAME to temat produktu (opcjonalne – jeśli pominięty, TrendAgent dobierze temat).
+    """
+    from src.pipeline.orchestrator import run_pipeline
 
-    if product_file.exists():
-        console.print(f"[yellow]Produkt '{slug}' juz istnieje: {product_file}[/yellow]")
+    try:
+        run_pipeline(topic=name, product_type=product_type, size=size)
+    except Exception as e:
+        console.print(f"[bold red]Błąd pipeline:[/bold red] {e}")
         sys.exit(1)
-
-    product = {
-        "slug": slug,
-        "name": name,
-        "category": category,
-        "description": description,
-        "status": "draft",
-        "steps_completed": [],
-    }
-
-    product_file.write_text(json.dumps(product, indent=2, ensure_ascii=False))
-    console.print(f"[green]Utworzono produkt:[/green] {product_file}")
-    console.print(f"  Nazwa:     {name}")
-    console.print(f"  Kategoria: {category}")
-    console.print(f"  Status:    draft")
-    console.print("\nUruchom pipeline: [bold]python cli.py status[/bold]")
 
 
 @cli.command()
