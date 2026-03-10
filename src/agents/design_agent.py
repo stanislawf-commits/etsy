@@ -42,7 +42,7 @@ SIZE_MM: dict[str, float] = {
 WALL_MM = 2.5
 
 DATA_DIR = Path(__file__).parents[2] / "data" / "products"
-MODEL = "claude-sonnet-4-6"
+MODEL = "claude-opus-4-6"
 
 # Liczba prób generowania przez API
 _MAX_RETRIES = 3

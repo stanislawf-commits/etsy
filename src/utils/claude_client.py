@@ -22,7 +22,7 @@ import time
 log = logging.getLogger(__name__)
 
 # Modele domyślne
-DEFAULT_MODEL   = "claude-sonnet-4-6"
+DEFAULT_MODEL   = "claude-opus-4-6"
 FAST_MODEL      = "claude-haiku-4-5-20251001"
 POWERFUL_MODEL  = "claude-opus-4-6"
 
@@ -59,7 +59,7 @@ def claude_text(
 
     Args:
         prompt:     Treść promptu (user message)
-        model:      Model Claude (domyślnie claude-sonnet-4-6)
+        model:      Model Claude (domyślnie claude-opus-4-6)
         max_tokens: Maksymalna liczba tokenów odpowiedzi
         system:     Opcjonalny system prompt
         retries:    Liczba prób przy błędach API

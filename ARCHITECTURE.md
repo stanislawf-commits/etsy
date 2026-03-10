@@ -177,10 +177,10 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 
 | Agent         | Model              | Uzasadnienie                         |
 |---------------|--------------------|--------------------------------------|
-| listing_agent | claude-sonnet-4-6  | Najlepszy stosunek jakości do kosztu |
-| design_agent  | claude-sonnet-4-6  | SVG path generation                  |
+| listing_agent | claude-opus-4-6    | Najlepszy stosunek jakości do kosztu |
+| design_agent  | claude-opus-4-6    | SVG path generation                  |
 | trend_agent   | claude-haiku-4-5   | Prosta klasyfikacja, koszt ważny     |
-| (future) seo  | claude-sonnet-4-6  | A/B testy tytułów                    |
+| (future) seo  | claude-opus-4-6    | A/B testy tytułów                    |
 
 ---
 

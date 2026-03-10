@@ -58,7 +58,7 @@ tests/                  # testy jednostkowe i integracyjne
 - Kazdy agent to plik `<nazwa>_agent.py` z funkcja `run(product: dict) -> dict`
 - Agent zwraca zaktualizowany slownik produktu z nowymi polami
 - Uzyj `anthropic.Anthropic()` z kluczem z `os.getenv("ANTHROPIC_API_KEY")`
-- Domyslny model: `claude-sonnet-4-6` (aktualizuj jesli pojawi sie nowszy)
+- Domyslny model: `claude-opus-4-6` (aktualizuj jesli pojawi sie nowszy)
 
 ### Pipeline (`src/pipeline/`)
 
