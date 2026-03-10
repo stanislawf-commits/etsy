@@ -213,10 +213,11 @@ class SVGPathParser:
 
             elif cmd in ('A', 'a'):
                 vals = consume(7)
-                _rx, _ry, _rot, large, sweep, ex, ey = vals
+                rx_a, ry_a, rot_a, large, sweep, ex, ey = vals
                 if cmd == 'a':
                     ex += x; ey += y
-                pts = self._arc_pts(x, y, ex, ey)
+                pts = self._arc_pts(x, y, rx_a, ry_a, rot_a,
+                                    int(large), int(sweep), ex, ey)
                 current.extend(pts)
                 x, y = ex, ey
 
@@ -233,8 +234,58 @@ class SVGPathParser:
             contours.append(current)
         return contours
 
-    def _arc_pts(self, x1, y1, x2, y2, n=12) -> list:
-        return [(x1 + (x2-x1)*k/n, y1 + (y2-y1)*k/n) for k in range(1, n+1)]
+    def _arc_pts(self, x1: float, y1: float, rx: float, ry: float,
+                 phi_deg: float, large_arc: int, sweep: int,
+                 x2: float, y2: float, n: int = 24) -> list:
+        """Prawdziwa konwersja luku SVG na punkty (SVG spec endpoint->center)."""
+        if rx < 1e-9 or ry < 1e-9:
+            return [(x2, y2)]
+        phi = math.radians(phi_deg)
+        cp, sp = math.cos(phi), math.sin(phi)
+        dx, dy = (x1 - x2) / 2, (y1 - y2) / 2
+        x1p =  cp * dx + sp * dy
+        y1p = -sp * dx + cp * dy
+        x1p2, y1p2 = x1p * x1p, y1p * y1p
+        rx2, ry2 = rx * rx, ry * ry
+        lam = x1p2 / rx2 + y1p2 / ry2
+        if lam > 1:
+            sq = math.sqrt(lam)
+            rx *= sq; ry *= sq
+            rx2, ry2 = rx * rx, ry * ry
+        num = max(0.0, rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2)
+        den = rx2 * y1p2 + ry2 * x1p2
+        sq  = math.sqrt(num / den) if den > 1e-12 else 0.0
+        if large_arc == sweep:
+            sq = -sq
+        cxp =  sq * rx * y1p / ry
+        cyp = -sq * ry * x1p / rx
+        cx = cp * cxp - sp * cyp + (x1 + x2) / 2
+        cy = sp * cxp + cp * cyp + (y1 + y2) / 2
+
+        def _angle(ux, uy, vx, vy):
+            n_ = math.sqrt(ux*ux + uy*uy) * math.sqrt(vx*vx + vy*vy)
+            if n_ < 1e-12:
+                return 0.0
+            c = max(-1.0, min(1.0, (ux*vx + uy*vy) / n_))
+            a = math.acos(c)
+            return -a if ux * vy - uy * vx < 0 else a
+
+        ux, uy = (x1p - cxp) / rx, (y1p - cyp) / ry
+        vx, vy = (-x1p - cxp) / rx, (-y1p - cyp) / ry
+        theta1 = _angle(1.0, 0.0, ux, uy)
+        dtheta = _angle(ux, uy, vx, vy)
+        if sweep == 0 and dtheta > 0:
+            dtheta -= 2 * math.pi
+        elif sweep == 1 and dtheta < 0:
+            dtheta += 2 * math.pi
+
+        pts = []
+        for i in range(1, n + 1):
+            t = theta1 + dtheta * i / n
+            px = cp * rx * math.cos(t) - sp * ry * math.sin(t) + cx
+            py = sp * rx * math.cos(t) + cp * ry * math.sin(t) + cy
+            pts.append((px, py))
+        return pts
 
 
 # ── OpenSCADGenerator ─────────────────────────────────────────────────────────
@@ -244,12 +295,11 @@ class OpenSCADGenerator:
 
     def generate_scad(self, contours: list, product_type: str, size_mm: float, slug: str) -> str:
         norm = self._normalize(contours, size_mm)
-        poly_code = self._contours_to_polygon(norm)
         if product_type == "stamp":
-            return self._scad_stamp(poly_code, slug)
+            return self._scad_stamp(norm, slug)
         elif product_type == "combo":
-            return self._scad_cutter(poly_code, slug) + "\n" + self._scad_stamp(poly_code, slug)
-        return self._scad_cutter(poly_code, slug)
+            return self._scad_cutter(norm, slug) + "\n" + self._scad_stamp(norm, slug)
+        return self._scad_cutter(norm, slug)
 
     def _normalize(self, contours: list, size_mm: float) -> list:
         all_pts = [p for c in contours for p in c]
@@ -265,45 +315,52 @@ class OpenSCADGenerator:
         cy = (min_y + max_y) / 2
         return [[ ((p[0]-cx)*sc, (p[1]-cy)*sc) for p in c ] for c in contours]
 
-    def _contours_to_polygon(self, contours: list) -> str:
-        all_pts = []
-        paths = []
-        for c in contours:
-            start = len(all_pts)
-            all_pts.extend(c)
-            paths.append(list(range(start, start + len(c))))
-        pts_str  = ", ".join(f"[{p[0]:.4f},{p[1]:.4f}]" for p in all_pts)
-        path_str = ", ".join(str(p) for p in paths)
-        return f"polygon(points=[{pts_str}], paths=[{path_str}]);"
+    def _single_polygon(self, contour: list) -> str:
+        pts_str = ", ".join(f"[{p[0]:.4f},{p[1]:.4f}]" for p in contour)
+        return f"polygon(points=[{pts_str}]);"
 
-    def _scad_cutter(self, poly_code: str, slug: str) -> str:
+    def _union_extrude(self, contours: list, height: float, offset_r: float = 0.0,
+                       z_offset: float = 0.0) -> str:
+        """Generuje union() { linear_extrude... } dla kazdego konturu osobno."""
+        lines = []
+        if z_offset:
+            lines.append(f"translate([0,0,{z_offset}])")
+        lines.append("union() {")
+        for c in contours:
+            poly = self._single_polygon(c)
+            if offset_r != 0.0:
+                lines.append(f"  linear_extrude(height={height})"
+                             f" {{ offset(r={offset_r}) {{ {poly} }} }}")
+            else:
+                lines.append(f"  linear_extrude(height={height}) {{ {poly} }}")
+        lines.append("}")
+        return "\n".join(lines)
+
+    def _scad_cutter(self, contours: list, slug: str) -> str:
+        body   = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=WALL_THICK_MM)
+        hollow = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=-CUTTING_EDGE_MM,
+                                     z_offset=BASE_THICK_MM)
+        base   = self._union_extrude(contours, BASE_THICK_MM,   offset_r=WALL_THICK_MM)
         return (
+            f"$fn=64;\n"
             f"// Cutter: {slug}\n"
-            f"// wall={WALL_THICK_MM}mm edge={CUTTING_EDGE_MM}mm base={BASE_THICK_MM}mm h={TOTAL_HEIGHT_MM}mm\n"
+            f"// wall={WALL_THICK_MM}mm edge={CUTTING_EDGE_MM}mm"
+            f" base={BASE_THICK_MM}mm h={TOTAL_HEIGHT_MM}mm\n"
             f"difference() {{\n"
-            f"  linear_extrude(height={TOTAL_HEIGHT_MM}) {{\n"
-            f"    offset(r={WALL_THICK_MM}) {{ {poly_code} }}\n"
-            f"  }}\n"
-            f"  translate([0,0,{BASE_THICK_MM}]) {{\n"
-            f"    linear_extrude(height={TOTAL_HEIGHT_MM}) {{\n"
-            f"      offset(r={-CUTTING_EDGE_MM}) {{ {poly_code} }}\n"
-            f"    }}\n"
-            f"  }}\n"
+            f"  {body}\n"
+            f"  {hollow}\n"
             f"}}\n"
-            f"linear_extrude(height={BASE_THICK_MM}) {{\n"
-            f"  offset(r={WALL_THICK_MM}) {{ {poly_code} }}\n"
-            f"}}\n"
+            f"{base}\n"
         )
 
-    def _scad_stamp(self, poly_code: str, slug: str) -> str:
+    def _scad_stamp(self, contours: list, slug: str) -> str:
+        base   = self._union_extrude(contours, BASE_THICK_MM,    offset_r=WALL_THICK_MM)
+        relief = self._union_extrude(contours, RELIEF_HEIGHT_MM, z_offset=BASE_THICK_MM)
         return (
+            f"$fn=64;\n"
             f"// Stamp: {slug}\n"
-            f"linear_extrude(height={BASE_THICK_MM}) {{\n"
-            f"  offset(r={WALL_THICK_MM}) {{ {poly_code} }}\n"
-            f"}}\n"
-            f"translate([0,0,{BASE_THICK_MM}]) {{\n"
-            f"  linear_extrude(height={RELIEF_HEIGHT_MM}) {{ {poly_code} }}\n"
-            f"}}\n"
+            f"{base}\n"
+            f"{relief}\n"
         )
 
 
@@ -446,8 +503,16 @@ class STLValidator:
         size = stl_path.stat().st_size
         if size <= 84:
             return {"valid": False, "error": f"File too small ({size} B)", "n_triangles": 0}
+        data = stl_path.read_bytes()
+        # Wykryj format: ASCII (zaczyna sie od "solid") vs binarny
+        if data[:5].lower() == b"solid":
+            n_tri = data.decode("ascii", errors="replace").count("facet normal")
+            if n_tri < 10:
+                return {"valid": False, "error": f"ASCII STL: too few triangles ({n_tri})", "n_triangles": n_tri}
+            return {"valid": True, "n_triangles": n_tri, "file_size": size,
+                    "expected_size": size, "error": None, "stl_format": "ascii"}
+        # Binarny STL
         try:
-            data = stl_path.read_bytes()
             n_tri = struct.unpack("<I", data[80:84])[0]
         except Exception as e:
             return {"valid": False, "error": f"Cannot read header: {e}", "n_triangles": 0}
@@ -460,6 +525,7 @@ class STLValidator:
             "n_triangles": n_tri,
             "file_size": size,
             "expected_size": expected,
+            "stl_format": "binary",
             "error": None if size_ok else f"Size mismatch: {size} vs {expected}",
         }
 
@@ -561,13 +627,16 @@ class ModelAgent:
             scad_path = f.name
         try:
             subprocess.run(
-                ["openscad", "-o", str(stl_path), scad_path],
+                ["openscad", "--export-format", "binstl",
+                 "-o", str(stl_path), scad_path],
                 capture_output=True, timeout=120, check=True,
             )
         finally:
             pathlib.Path(scad_path).unlink(missing_ok=True)
         if stl_path.exists() and stl_path.stat().st_size > 84:
             data = stl_path.read_bytes()
+            if data[:5].lower() == b"solid":
+                return data.decode("ascii", errors="replace").count("facet normal")
             return struct.unpack("<I", data[80:84])[0]
         return 0
 
