@@ -126,18 +126,19 @@ def run_pipeline(
 
     render_result: dict = {"success": False, "renders": [], "render_dir": ""}
     if models_ok:
-        with console.status("[bold green]Generuję renders (RenderAgent)...[/bold green]"):
+        with console.status("[bold green]Generuję renders (BlenderRenderAgent)...[/bold green]"):
             try:
-                from src.agents.render_agent import create_render_agent
-                render_agent = create_render_agent()
+                from src.agents.blender_render_agent import create_blender_render_agent
+                render_agent = create_blender_render_agent()
                 render_result = render_agent.generate(
                     product_dir=product_dir,
                     slug=slug,
                     topic=topic,
                     product_type=product_type,
                 )
-                log.info("RenderAgent: success=%s renders=%d",
-                         render_result.get("success"), len(render_result.get("renders", [])))
+                engine = render_result.get("engine", "?")
+                log.info("RenderAgent: success=%s renders=%d engine=%s",
+                         render_result.get("success"), len(render_result.get("renders", [])), engine)
             except Exception as exc:
                 log.warning("RenderAgent failed: %s", exc)
                 render_result = {"success": False, "renders": [], "render_dir": "", "error": str(exc)}
@@ -175,8 +176,10 @@ def run_pipeline(
     table.add_row("SVG",     f"[{'green' if design_ok else 'red'}]{svg_count} plików[/]"
                              f"  (mode: {design_result.get('mode', '?')})")
     table.add_row("STL",     f"[{'green' if models_ok else 'red'}]{len(stl_files)} plików[/]")
-    render_count = len(render_result.get("renders", []))
-    table.add_row("Renders", f"[{'green' if render_ok else 'red'}]{render_count} plików[/]")
+    render_count  = len(render_result.get("renders", []))
+    render_engine = render_result.get("engine", "pillow")
+    table.add_row("Renders", f"[{'green' if render_ok else 'red'}]{render_count} plików[/]"
+                             f"  (engine: {render_engine})")
     status_color = "green" if pipeline_status == "ready_for_publish" else "yellow"
     table.add_row("Status",  f"[{status_color}]{pipeline_status}[/{status_color}]")
 
