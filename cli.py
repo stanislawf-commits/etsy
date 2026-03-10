@@ -104,11 +104,19 @@ def new_product(name, product_type, size):
     else:
         console.print(f"  [yellow]![/yellow] STL:      brak plikow w {models_dir}")
 
+    # -- renders
+    renders_dir  = base / "renders"
+    render_files = list(renders_dir.glob("*.jpg")) if renders_dir.exists() else []
+    if render_files:
+        console.print(f"  [green]✓[/green] Renders:  {renders_dir} ({len(render_files)} pliki)")
+    else:
+        console.print(f"  [yellow]![/yellow] Renders:  brak plikow w {renders_dir}")
+
     # -- status
-    status_color = "green" if status == "ready_for_render" else "yellow"
+    status_color = "green" if status in ("ready_for_publish", "ready_for_render") else "yellow"
     console.print(f"  Status:   [{status_color}]{status}[/{status_color}]")
 
-    if status != "ready_for_render":
+    if status not in ("ready_for_render", "ready_for_publish"):
         sys.exit(1)
 
 
@@ -181,6 +189,113 @@ def list_products(status_filter):
 
     console.print(table)
     console.print(f"\nLacznie: [bold]{count}[/bold] produktow")
+
+
+@cli.command("etsy-auth")
+def etsy_auth():
+    """Uruchamia OAuth2 flow Etsy i zapisuje ETSY_ACCESS_TOKEN do .env."""
+    import webbrowser
+    from src.agents.etsy_agent import EtsyAgent
+
+    api_key = os.getenv("ETSY_API_KEY", "")
+    if not api_key:
+        console.print("[bold red]Brak ETSY_API_KEY w .env — ustaw klucz i sprobuj ponownie.[/bold red]")
+        sys.exit(1)
+
+    auth_url, code_verifier, state = EtsyAgent.build_auth_url()
+
+    console.print("\n[bold]Etsy OAuth2 — autoryzacja sklepu[/bold]\n")
+    console.print("Otwieram przeglądarkę z URL autoryzacji...")
+    console.print(f"[dim]{auth_url}[/dim]\n")
+
+    try:
+        webbrowser.open(auth_url)
+    except Exception:
+        console.print("[yellow]Nie można otworzyć przeglądarki — skopiuj URL ręcznie.[/yellow]")
+
+    console.print("Po autoryzacji Etsy przekieruje Cię na:")
+    console.print(f"  [cyan]http://localhost:3003/callback?code=...&state={state}[/cyan]")
+    console.print()
+
+    code = click.prompt("Wklej parametr 'code' z URL callbacku").strip()
+    if not code:
+        console.print("[red]Brak kodu — anulowano.[/red]")
+        sys.exit(1)
+
+    try:
+        tokens = EtsyAgent.exchange_code(code, code_verifier)
+    except Exception as exc:
+        console.print(f"[bold red]Błąd wymiany tokenu:[/bold red] {exc}")
+        sys.exit(1)
+
+    access_token  = tokens.get("access_token", "")
+    refresh_token = tokens.get("refresh_token", "")
+
+    if not access_token:
+        console.print("[red]Brak access_token w odpowiedzi Etsy.[/red]")
+        sys.exit(1)
+
+    # Zapisz token do .env
+    env_path = Path(__file__).parent / ".env"
+    env_text = env_path.read_text() if env_path.exists() else ""
+
+    def _set_env_var(text: str, key: str, value: str) -> str:
+        import re
+        pattern = rf"^{re.escape(key)}=.*$"
+        line    = f"{key}={value}"
+        if re.search(pattern, text, re.MULTILINE):
+            return re.sub(pattern, line, text, flags=re.MULTILINE)
+        return text.rstrip("\n") + f"\n{line}\n"
+
+    env_text = _set_env_var(env_text, "ETSY_ACCESS_TOKEN",  access_token)
+    if refresh_token:
+        env_text = _set_env_var(env_text, "ETSY_REFRESH_TOKEN", refresh_token)
+
+    env_path.write_text(env_text)
+    console.print(f"\n[bold green]✓ Token zapisany do {env_path}[/bold green]")
+    console.print("Możesz teraz uruchomić: [cyan]python cli.py publish <slug>[/cyan]")
+
+
+@cli.command("publish")
+@click.argument("slug")
+def publish_product(slug):
+    """Publikuje produkt na Etsy (lub dry-run gdy brak klucza API)."""
+    from src.agents.etsy_agent import create_etsy_agent
+
+    product_dir = DATA_DIR / slug
+    if not product_dir.exists():
+        console.print(f"[red]Produkt '{slug}' nie istnieje w {DATA_DIR}[/red]")
+        sys.exit(1)
+
+    agent  = create_etsy_agent()
+    result = agent.publish(product_dir=product_dir, slug=slug)
+
+    if result.get("dry_run"):
+        export_path = result.get("export_path", "")
+        console.print(f"\n[bold yellow]DRY RUN — listing_export.json zapisany[/bold yellow]")
+        console.print(f"  [dim]{export_path}[/dim]")
+        console.print("\nUzupełnij ETSY_API_KEY w .env i uruchom ponownie,")
+        console.print("lub skopiuj dane z listing_export.json ręcznie na Etsy.\n")
+        return
+
+    if result.get("error") == "oauth_required":
+        console.print("\n[bold yellow]⚠ Brak tokenu OAuth2.[/bold yellow]")
+        console.print("Uruchom:  [cyan]python3 cli.py etsy-auth[/cyan]")
+        sys.exit(1)
+
+    if not result.get("success"):
+        console.print(f"\n[bold red]Błąd publikacji:[/bold red] {result.get('error')}")
+        sys.exit(1)
+
+    listing_id  = result.get("listing_id")
+    listing_url = result.get("url")
+    images      = result.get("images", 0)
+
+    console.print(f"\n[bold green]✓ Opublikowano na Etsy![/bold green]")
+    console.print(f"  Listing ID: [bold]{listing_id}[/bold]")
+    console.print(f"  URL:        [cyan]{listing_url}[/cyan]")
+    console.print(f"  Zdjęcia:    {images}/5")
+    console.print(f"\n[dim]Status w meta.json: listed[/dim]\n")
 
 
 if __name__ == "__main__":

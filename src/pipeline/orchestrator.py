@@ -125,11 +125,36 @@ def run_pipeline(
                 log.warning("ModelAgent failed: %s", exc)
                 model_result = {"sizes": {}, "error": str(exc)}
 
-    # ── 6. Aktualizacja meta.json ─────────────────────────────────────────────
-    models_ok  = len(stl_files) > 0
-    design_ok  = design_result.get("success", False)
-    pipeline_status = "ready_for_render" if (design_ok and models_ok) else (
-                      "design_error" if not design_ok else "model_error")
+    # ── 6. Render (obrazy produktowe) ─────────────────────────────────────────
+    models_ok = len(stl_files) > 0
+    design_ok = design_result.get("success", False)
+
+    render_result: dict = {"success": False, "renders": [], "render_dir": ""}
+    if models_ok:
+        with console.status("[bold green]Generuję renders (RenderAgent)...[/bold green]"):
+            try:
+                from src.agents.render_agent import create_render_agent
+                render_agent = create_render_agent()
+                render_result = render_agent.generate(
+                    product_dir=product_dir,
+                    slug=slug,
+                    topic=topic,
+                    product_type=product_type,
+                )
+                log.info("RenderAgent: success=%s renders=%d",
+                         render_result.get("success"), len(render_result.get("renders", [])))
+            except Exception as exc:
+                log.warning("RenderAgent failed: %s", exc)
+                render_result = {"success": False, "renders": [], "render_dir": "", "error": str(exc)}
+
+    # ── 7. Aktualizacja meta.json ─────────────────────────────────────────────
+    render_ok = render_result.get("success", False)
+    pipeline_status = (
+        "ready_for_publish" if (design_ok and models_ok and render_ok) else
+        "ready_for_render"  if (design_ok and models_ok) else
+        "design_error"      if not design_ok else
+        "model_error"
+    )
 
     meta["design"] = {"mode": design_result.get("mode"), "success": design_ok}
     meta["models"] = {
@@ -137,11 +162,12 @@ def run_pipeline(
         "sizes": list(model_result.get("sizes", {}).keys()),
         "stl_count": len(stl_files),
     }
+    meta["renders"] = {"success": render_ok, "count": len(render_result.get("renders", []))}
     meta["status"] = pipeline_status
     meta_file.write_text(json.dumps(meta, indent=2, ensure_ascii=False))
     log.info("Updated meta.json → status=%s", pipeline_status)
 
-    # ── 7. Podsumowanie w konsoli ─────────────────────────────────────────────
+    # ── 8. Podsumowanie w konsoli ─────────────────────────────────────────────
     table = Table(show_header=False, box=None, padding=(0, 1))
     table.add_column("Klucz", style="dim", min_width=16)
     table.add_column("Wartość")
@@ -154,7 +180,9 @@ def run_pipeline(
     table.add_row("SVG",     f"[{'green' if design_ok else 'red'}]{svg_count} plików[/]"
                              f"  (mode: {design_result.get('mode', '?')})")
     table.add_row("STL",     f"[{'green' if models_ok else 'red'}]{len(stl_files)} plików[/]")
-    status_color = "green" if pipeline_status == "ready_for_render" else "yellow"
+    render_count = len(render_result.get("renders", []))
+    table.add_row("Renders", f"[{'green' if render_ok else 'red'}]{render_count} plików[/]")
+    status_color = "green" if pipeline_status == "ready_for_publish" else "yellow"
     table.add_row("Status",  f"[{status_color}]{pipeline_status}[/{status_color}]")
 
     console.print(Panel(table, title="[bold green]Pipeline zakończony[/bold green]", expand=False))
@@ -168,4 +196,5 @@ def run_pipeline(
         "design":           design_result,
         "models":           model_result,
         "stl_files":        stl_files,
+        "renders":          render_result,
     }
