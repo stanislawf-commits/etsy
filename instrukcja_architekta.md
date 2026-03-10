@@ -97,9 +97,44 @@ Po każdej fazie (nie po każdym commicie):
 git push origin main
 ```
 
-Przed push sprawdź:
-- Brak .env w `git status`
-- Brak danych produktów (data/products/) jeśli gitignored
+### BEZPIECZEŃSTWO — obowiązkowa kontrola przed każdym push
+
+**Przed `git push` zawsze uruchom:**
+```bash
+git diff --cached --name-only   # sprawdź staged files
+git status                      # sprawdź untracked
+```
+
+**Nigdy nie commituj:**
+| Typ pliku | Przykłady |
+|-----------|-----------|
+| Zmienne środowiskowe | `.env`, `.env.local`, `.env.production` |
+| Klucze prywatne | `*.pem`, `*.key`, `*.p12`, `*.pfx` |
+| Tokeny OAuth | `token.json`, `oauth_token.json` |
+| Credentials | `credentials.json`, `service_account.json` |
+| Sekrety w YAML | `secrets.yaml`, `*_secret*` |
+| Klucze API w kodzie | Nigdy `api_key = "sk-..."` w kodzie |
+
+**Jeśli klucz przypadkowo trafił do historii:**
+```bash
+# 1. Natychmiast unieważnij klucz w panelu dostawcy (Anthropic/Etsy/OpenAI)
+# 2. Wyczyść historię:
+git filter-branch --force --index-filter \
+  'git rm --cached --ignore-unmatch .env' HEAD
+# lub użyj: https://github.com/nicowillis/git-filter-repo
+# 3. Force push (po potwierdzeniu z użytkownikiem)
+```
+
+**Sekrety trzymamy WYŁĄCZNIE w:**
+- `.env` (lokalnie, gitignored)
+- Zmienne środowiskowe systemu / CI/CD secrets
+- Managery sekretów (Vault, AWS Secrets Manager) — w przyszłości
+
+**.gitignore obejmuje** (plik `.gitignore` w repo):
+- `.env*` — wszystkie warianty env
+- `*.key`, `*.pem`, `*.p12` — klucze prywatne
+- `credentials.json`, `token.json` — tokeny
+- `secrets.yaml`, `*_secret*`, `*api_key*` — konwencje nazewnicze
 
 ---
 

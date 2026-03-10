@@ -1,15 +1,41 @@
+# ── Sekrety i klucze API (NIGDY nie commitować) ───────────────────────────────
 .env
+.env*
+2.env
+*.key
+*.pem
+*.p12
+*.pfx
+*.pkcs12
+secrets.yaml
+secrets.yml
+credentials.json
+credentials.yaml
+service_account.json
+token.json
+oauth_token.json
+*_secret*
+*_private*
+*api_key*
+
+# ── Python ────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
-.venv/
-venv/
-env/
-logs/*.log
 *.egg-info/
 dist/
 build/
+
+# ── Środowiska wirtualne ──────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Narzędzia ─────────────────────────────────────────────────────────────────
 .pytest_cache/
 .mypy_cache/
-2.env
-.env*
+.ruff_cache/
+
+# ── Logi ─────────────────────────────────────────────────────────────────────
+logs/*.log
+logs/trend_suggestions.json
