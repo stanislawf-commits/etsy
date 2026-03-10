@@ -1,0 +1,62 @@
+# product_types.yaml — parametry fizyczne każdego typu produktu
+# Używane przez model_agent (STL) i listing_agent (opis wymiarów)
+
+cutter:
+  label: "Cookie Cutter"
+  label_plural: "Cookie Cutters"
+  etsy_search_terms: ["cookie cutter", "biscuit cutter", "cookie mold"]
+  # Parametry 3D modelu (mm)
+  wall_thickness: 1.8      # grubość ścianki cuttera
+  blade_thickness: 0.4     # ostrze (czubek)
+  total_height: 12.0       # całkowita wysokość
+  base_height: 4.0         # wysokość podstawy (obrzeże)
+  # Rozmiary (szerokość/wysokość kształtu w mm)
+  sizes:
+    S:    { width_mm: 60,  height_mm: 60  }
+    M:    { width_mm: 75,  height_mm: 75  }
+    L:    { width_mm: 90,  height_mm: 90  }
+    XS:   { width_mm: 50,  height_mm: 50  }
+    XL:   { width_mm: 110, height_mm: 110 }
+    XXXL: { width_mm: 150, height_mm: 150 }
+
+stamp:
+  label: "Cookie Stamp"
+  label_plural: "Cookie Stamps"
+  etsy_search_terms: ["cookie stamp", "embosser", "cookie press"]
+  # Parametry 3D modelu (mm)
+  base_height: 4.0         # grubość podstawy
+  relief_height: 1.5       # wypukłość wzoru
+  handle_height: 15.0      # chwyt (opcjonalny)
+  sizes:
+    S:  { width_mm: 60,  height_mm: 60  }
+    M:  { width_mm: 75,  height_mm: 75  }
+    L:  { width_mm: 90,  height_mm: 90  }
+    XS: { width_mm: 50,  height_mm: 50  }
+    XL: { width_mm: 110, height_mm: 110 }
+
+set:
+  label: "Cookie Cutter & Stamp Set"
+  label_plural: "Cookie Cutter & Stamp Sets"
+  etsy_search_terms: ["cookie set", "cutter stamp set", "baking set"]
+  # Set = cutter + stamp generowane razem
+  components: ["cutter", "stamp"]
+  sizes:
+    S:  { width_mm: 60,  height_mm: 60  }
+    M:  { width_mm: 75,  height_mm: 75  }
+    L:  { width_mm: 90,  height_mm: 90  }
+    XL: { width_mm: 110, height_mm: 110 }
+
+# Mapowanie rozmiaru litery → opis słowny w listingu
+size_descriptions:
+  XS: "approx. 5cm (2 inches)"
+  S:  "approx. 6cm (2.4 inches)"
+  M:  "approx. 7-8cm (2.8-3.1 inches)"
+  L:  "approx. 9-10cm (3.5-4 inches)"
+  XL: "approx. 11cm+ (4.3 inches+)"
+
+# Materiał — opis w listingu
+material:
+  name: "PLA"
+  label: "food-safe PLA"
+  care: "Hand wash only – not dishwasher safe. Do not use in microwave or oven."
+  disclaimer: "Printed in food-safe PLA. Hand wash only – not dishwasher safe. Do not use in microwave or oven."

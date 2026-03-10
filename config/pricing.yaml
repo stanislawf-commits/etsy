@@ -1,0 +1,27 @@
+# pricing.yaml — zakresy cen i mnożniki rozmiarów
+# Jedyne źródło prawdy o cenach. Zmieniaj tylko tutaj.
+
+# Ceny bazowe w EUR (min, max) per typ produktu
+product_types:
+  cutter:
+    price_min: 8.0
+    price_max: 15.0
+  stamp:
+    price_min: 10.0
+    price_max: 18.0
+  set:
+    price_min: 15.0
+    price_max: 25.0
+
+# Mnożniki per rozmiar (stosowane do mid-range)
+size_multipliers:
+  XS: 0.85
+  S:  0.90
+  M:  1.00
+  L:  1.15
+  XL: 1.30
+
+# Format ceny końcowej
+# "dot99" → zaokrąglij do x.99 (np. 11.99)
+# "dot49" → zaokrąglij do x.49 (np. 11.49)
+price_format: dot99

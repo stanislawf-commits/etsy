@@ -1,8 +1,23 @@
+# Core
 anthropic
-openai
-requests
 python-dotenv
 click
 rich
+
+# Config
+pyyaml
+
+# Etsy API
+requests
+
+# 3D / Images
 pillow
 svgwrite
+trimesh              # STL validation (watertight check, mesh repair)
+numpy                # trimesh dependency
+
+# AI / Images (optional)
+openai               # DALL-E 3
+
+# Trends (optional — graceful fallback if missing)
+pytrends             # Google Trends

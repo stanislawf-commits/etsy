@@ -1,0 +1,46 @@
+# etsy.yaml — konfiguracja Etsy API i listingów
+
+api:
+  base_url: "https://openapi.etsy.com/v3"
+  oauth_base_url: "https://www.etsy.com/oauth/connect"
+  token_url: "https://api.etsy.com/v3/public/oauth/token"
+  redirect_uri: "http://localhost:3003/callback"
+  # Scopes OAuth2
+  scopes:
+    - "listings_w"
+    - "listings_r"
+    - "listings_d"
+  # Rate limiting
+  requests_per_second: 5
+  retry_attempts: 3
+  retry_backoff_seconds: 2
+
+listing:
+  # Etsy taxonomy — kategoria "Cookie Cutters & Stamps"
+  taxonomy_id: 68887614
+  # Limity pól
+  title_max_chars: 140
+  tags_count: 13
+  tag_max_chars: 20
+  description_min_words: 300
+  # Stan listingu przy tworzeniu
+  default_state: "draft"   # "draft" | "active"
+  # Waluta
+  currency: "EUR"
+  # Shipping template ID (ustaw po skonfigurowaniu w sklepie)
+  shipping_template_id: null
+  # Ilość na stanie
+  quantity: 999
+
+images:
+  # Kolejność uploadowania zdjęć (Etsy wymaga rankingu)
+  upload_order:
+    - hero
+    - lifestyle
+    - sizes
+    - detail
+    - info
+  # Format i jakość
+  format: "JPEG"
+  quality: 92
+  size_px: 2000
