@@ -1,8 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" width="75.0mm" height="75.0mm" viewBox="0 0 75.0 75.0">
-  <!-- DALL-E 3 preview -->
-  <image href="floral-wreath-cutter-m-M_dalle_raw.png" x="0" y="0" width="75.0" height="75.0" opacity="0.35"/>
-  <!-- vector outline for 3D model -->
-  <path d="M 55.44,37.50 A 5.52,5.52 0 1 1 55.43,37.50 Z M 50.19,50.19 A 5.52,5.52 0 1 1 50.18,50.19 Z M 37.50,55.44 A 5.52,5.52 0 1 1 37.49,55.44 Z M 24.81,50.19 A 5.52,5.52 0 1 1 24.80,50.19 Z M 19.56,37.50 A 5.52,5.52 0 1 1 19.55,37.50 Z M 24.81,24.81 A 5.52,5.52 0 1 1 24.80,24.81 Z M 37.50,19.56 A 5.52,5.52 0 1 1 37.49,19.56 Z M 50.19,24.81 A 5.52,5.52 0 1 1 50.18,24.81 Z M 44.40,37.50 A 6.90,6.90 0 1 1 44.39,37.50 Z" fill="none" stroke="#1a1a1a" stroke-width="2.5mm" stroke-linejoin="round" stroke-linecap="round"/>
-  <text x="37.5" y="72.75" text-anchor="middle" font-size="3px" fill="#888">floral wreath | DALL-E 3 | M</text>
-</svg>

@@ -32,8 +32,11 @@ def migrate(dry_run: bool = False) -> dict:
 
     stats = {"migrated": 0, "skipped": 0, "errors": 0}
 
+    # Nowa struktura v3: DATA_DIR/{product_type}/{slug}/meta.json (2 poziomy głębiej)
     product_dirs = sorted(
-        d for d in DATA_DIR.iterdir()
+        d
+        for type_dir in DATA_DIR.iterdir() if type_dir.is_dir()
+        for d in type_dir.iterdir()
         if d.is_dir() and (d / "meta.json").exists()
     )
 

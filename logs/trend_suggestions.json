@@ -1,13 +1,37 @@
 {
-  "generated_at": "2026-03-10T21:37:02.032155",
+  "generated_at": "2026-03-10T22:49:02.214820",
   "category": "baking",
   "method": "static",
   "suggestions": [
     {
-      "topic": "easter egg",
+      "topic": "christmas snowflake",
+      "product_type": "cutter",
+      "priority": "high",
+      "reason": "Peak November-December; highest-volume holiday search.",
+      "season": "holiday",
+      "source": "static"
+    },
+    {
+      "topic": "celestial moon and stars",
       "product_type": "set",
       "priority": "high",
-      "reason": "Easter set drives premium pricing; strong family baking appeal.",
+      "reason": "Fastest-growing niche; moon+stars sets drive higher average order value.",
+      "season": "evergreen",
+      "source": "static"
+    },
+    {
+      "topic": "valentine heart",
+      "product_type": "cutter",
+      "priority": "high",
+      "reason": "[Seasonal Q1] Valentine's Day peak in February; consistent top seller.",
+      "season": "holiday",
+      "source": "static"
+    },
+    {
+      "topic": "shamrock",
+      "product_type": "cutter",
+      "priority": "high",
+      "reason": "[Seasonal Q1] St. Patrick's Day; short but intense search spike in March.",
       "season": "holiday",
       "source": "static"
     },
@@ -16,30 +40,6 @@
       "product_type": "cutter",
       "priority": "high",
       "reason": "Easter peak; one of highest-volume seasonal searches.",
-      "season": "holiday",
-      "source": "static"
-    },
-    {
-      "topic": "halloween pumpkin",
-      "product_type": "cutter",
-      "priority": "high",
-      "reason": "Peak October demand; one of highest-volume seasonal searches.",
-      "season": "holiday",
-      "source": "static"
-    },
-    {
-      "topic": "halloween ghost",
-      "product_type": "cutter",
-      "priority": "high",
-      "reason": "Halloween search spike; fun design for parties and kids.",
-      "season": "holiday",
-      "source": "static"
-    },
-    {
-      "topic": "valentine heart",
-      "product_type": "cutter",
-      "priority": "high",
-      "reason": "[Seasonal Q1] Valentine's Day peak in February; consistent top seller.",
       "season": "holiday",
       "source": "static"
     }

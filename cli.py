@@ -242,86 +242,84 @@ def analytics_sync(slug):
 @click.argument("slug", required=False)
 def status(slug):
     """Pokazuje status produktu lub wszystkich produktow."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    files = list(DATA_DIR.glob("*.json"))
+    from src.utils.product_io import load_all_products, find_product_dir, load_meta, PRODUCT_TYPES
 
-    if not files:
+    if slug:
+        prod_dir = find_product_dir(slug)
+        if not prod_dir:
+            console.print(f"[red]Produkt '{slug}' nie istnieje.[/red]")
+            sys.exit(1)
+        data = json.loads((prod_dir / "meta.json").read_text())
+        steps = data.get("steps_completed", [])
+        ptype = data.get("product_type", prod_dir.parent.name)
+        console.print(f"[bold]{slug}[/bold]  [dim]({ptype})[/dim]")
+        console.print(f"  Status: [cyan]{data.get('status', '?')}[/cyan]")
+        console.print(f"  Kroki:  {', '.join(steps) if steps else 'brak'}")
+        console.print(f"  Temat:  {data.get('topic', '–')}")
+        console.print()
+        return
+
+    products = load_all_products()
+    if not products:
         console.print("[dim]Brak produktow. Uzyj: python cli.py new-product <nazwa>[/dim]")
         return
 
-    if slug:
-        product_file = DATA_DIR / f"{slug}.json"
-        if not product_file.exists():
-            console.print(f"[red]Produkt '{slug}' nie istnieje.[/red]")
-            sys.exit(1)
-        files = [product_file]
-
-    for f in files:
-        data = json.loads(f.read_text())
+    for p in products:
+        data  = p["meta"]
         steps = data.get("steps_completed", [])
-        steps_str = ", ".join(steps) if steps else "brak"
-        console.print(f"[bold]{data['name']}[/bold] ({data['slug']})")
-        console.print(f"  Status:   [cyan]{data['status']}[/cyan]")
-        console.print(f"  Kroki:    {steps_str}")
+        console.print(f"[bold]{p['slug']}[/bold]  [dim]({p['product_type']})[/dim]")
+        console.print(f"  Status: [cyan]{data.get('status', '?')}[/cyan]")
+        console.print(f"  Kroki:  {', '.join(steps) if steps else 'brak'}")
         console.print()
 
 
 @cli.command("list")
 @click.option("--status-filter", "-s", default=None, help="Filtruj po statusie (draft, ready, published)")
-def list_products(status_filter):
-    """Listuje wszystkie produkty w pipeline."""
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+@click.option("--type-filter", "-t", default=None, help="Filtruj po typie (cutter, stamp, set)")
+def list_products(status_filter, type_filter):
+    """Listuje wszystkie produkty w pipeline (grupowane wg kategorii)."""
+    from src.utils.product_io import load_all_products, DATA_DIR, PRODUCT_TYPES
 
-    # Szukaj meta.json w podfolderach (nowy format) oraz *.json wprost (stary)
-    meta_files = sorted(DATA_DIR.glob("*/meta.json"))
-    flat_files  = [f for f in sorted(DATA_DIR.glob("*.json"))
-                   if not (DATA_DIR / f.stem).is_dir()]
-    all_files   = meta_files + flat_files
+    STATUS_COLORS = {
+        "ready_for_publish":        "green",
+        "ready_for_render":         "cyan",
+        "listed":                   "bold green",
+        "ready_for_manual_publish": "cyan",
+        "draft":                    "yellow",
+        "design_error":             "red",
+        "model_error":              "red",
+    }
 
-    if not all_files:
+    products = load_all_products()
+    if not products:
         console.print("[dim]Brak produktow.[/dim]")
         return
 
-    STATUS_COLORS = {
-        "ready_for_publish":       "green",
-        "ready_for_render":        "cyan",
-        "listed":                  "bold green",
-        "ready_for_manual_publish": "cyan",
-        "draft":                   "yellow",
-        "design_error":            "red",
-        "model_error":             "red",
-    }
-
     table = Table(title="Produkty etsy3d", show_header=True, header_style="bold cyan")
-    table.add_column("Slug", style="dim")
-    table.add_column("Tytuł")
-    table.add_column("Cena", justify="right")
-    table.add_column("SVG", justify="center")
-    table.add_column("STL", justify="center")
-    table.add_column("Renders", justify="center")
+    table.add_column("Typ",     style="dim", width=8)
+    table.add_column("Slug",    style="dim")
+    table.add_column("Tytuł",   max_width=50)
+    table.add_column("Cena",    justify="right", width=10)
+    table.add_column("SVG",     justify="center", width=5)
+    table.add_column("STL",     justify="center", width=5)
+    table.add_column("Renders", justify="center", width=8)
     table.add_column("Status")
 
     count = 0
-    for meta_f in all_files:
-        data = json.loads(meta_f.read_text())
-        prod_status = data.get("status", "draft")
+    for p in products:
+        ptype       = p["product_type"]
+        slug        = p["slug"]
+        prod_status = p["meta"].get("status", "draft")
+
         if status_filter and prod_status != status_filter:
             continue
+        if type_filter and ptype != type_filter:
+            continue
 
-        slug     = data.get("slug", meta_f.parent.name)
-        prod_dir = DATA_DIR / slug
-
-        # Tytuł z listing.json
-        title = "–"
-        price = "–"
-        listing_path = prod_dir / "listing.json"
-        if listing_path.exists():
-            try:
-                lst   = json.loads(listing_path.read_text())
-                title = lst.get("title", "–")[:55]
-                price = f"{lst.get('price_suggestion', '–')} EUR"
-            except Exception:
-                pass
+        prod_dir = DATA_DIR / ptype / slug
+        listing  = p["listing"]
+        title    = listing.get("title", "–")[:50]
+        price    = f"{listing.get('price_suggestion', '–')} EUR" if listing else "–"
 
         svg_count = len(list((prod_dir / "source").glob("*.svg"))) if (prod_dir / "source").exists() else 0
         stl_count = len(list((prod_dir / "models").glob("*.stl"))) if (prod_dir / "models").exists() else 0
@@ -329,6 +327,7 @@ def list_products(status_filter):
 
         color = STATUS_COLORS.get(prod_status, "white")
         table.add_row(
+            ptype,
             slug,
             title,
             price,

@@ -153,7 +153,8 @@ def generate(topic: str, product_type: str = "cutter", size: str = "M") -> dict:
     if size not in valid_sizes:
         raise ValueError(f"Unknown size '{size}'. Choose from: {valid_sizes}")
 
-    slug   = _slugify(f"{topic}-{product_type}-{size}")
+    # slug = temat produktu (bez type/size — te info są w meta.json i ścieżce)
+    slug   = _slugify(topic)
     prompt = _build_prompt(topic, product_type, size)
 
     log.info("Generating listing: topic=%r type=%s size=%s slug=%s", topic, product_type, size, slug)
@@ -169,6 +170,6 @@ def generate(topic: str, product_type: str = "cutter", size: str = "M") -> dict:
         **data,
     }
 
-    save_listing(slug, result)
+    save_listing(slug, result, product_type=product_type)
     log.info("Listing saved: slug=%s title=%r", slug, result.get("title", "")[:60])
     return result

@@ -57,9 +57,10 @@ def run_pipeline(
     slug = listing["slug"]
 
     # ── 3. Zapis plików ──────────────────────────────────────────────────────
-    product_dir = ensure_product_dir(slug)
+    # Ścieżka: data/products/{product_type}/{slug}/
+    product_dir = ensure_product_dir(slug, product_type)
 
-    listing_path = save_listing(slug, listing)
+    listing_path = save_listing(slug, listing, product_type=product_type)
     log.info("Saved listing.json → %s", listing_path)
 
     meta = {
@@ -71,7 +72,7 @@ def run_pipeline(
         "status": "draft",
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    meta_path = save_meta(slug, meta)
+    meta_path = save_meta(slug, meta, product_type=product_type)
     log.info("Saved meta.json → %s", meta_path)
 
     # ── 4. Design (SVG) ──────────────────────────────────────────────────────

@@ -1,0 +1,26 @@
+{
+  "id": "5d352eba-2998-4fa0-acd3-1cc6757104f4",
+  "slug": "celestial-moon-stars",
+  "topic": "celestial moon stars",
+  "product_type": "cutter",
+  "size": "M",
+  "status": "ready_for_publish",
+  "created_at": "2026-03-10T13:42:09.837623+00:00",
+  "design": {
+    "mode": "auto",
+    "success": true
+  },
+  "models": {
+    "success": true,
+    "sizes": [
+      "S",
+      "M",
+      "L"
+    ],
+    "stl_count": 3
+  },
+  "renders": {
+    "success": true,
+    "count": 5
+  }
+}

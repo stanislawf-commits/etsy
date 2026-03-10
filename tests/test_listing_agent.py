@@ -108,12 +108,13 @@ def test_generate_with_mock(mock_anthropic, tmp_path, monkeypatch):
 
     result = generate("floral wreath", "cutter", "M")
 
-    assert result["slug"] == "floral-wreath-cutter-m"
+    # Slug = tylko temat (bez type/size — v3 structure)
+    assert result["slug"] == "floral-wreath"
     assert result["topic"] == "floral wreath"
     assert len(result["tags"]) == 13
     assert result["price_suggestion"] > 0
-    # Sprawdź zapis do pliku
-    assert (tmp_path / "floral-wreath-cutter-m" / "listing.json").exists()
+    # Zapis do data/products/cutter/floral-wreath/listing.json
+    assert (tmp_path / "cutter" / "floral-wreath" / "listing.json").exists()
 
 
 # ── integration test (wymaga ANTHROPIC_API_KEY) ───────────────────────────────
@@ -137,5 +138,6 @@ def test_generate_integration(tmp_path, monkeypatch):
     assert lo <= result["price_suggestion"] <= hi
     assert len(result["description"].split()) >= 300
 
-    saved = json.loads((tmp_path / result["slug"] / "listing.json").read_text())
+    # Nowa struktura: data/products/{type}/{slug}/listing.json
+    saved = json.loads((tmp_path / result["product_type"] / result["slug"] / "listing.json").read_text())
     assert saved["title"] == result["title"]
