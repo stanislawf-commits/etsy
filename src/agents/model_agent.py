@@ -834,7 +834,7 @@ class ModelAgent:
                     "error": "No contours parsed from SVG"}
 
         main_contour = max(contours, key=len)
-        stl_name = f"{slug}_{size_key}_{product_type}.stl"
+        stl_name = f"{size_key}_{product_type}.stl"
         stl_path = output_dir / stl_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -863,27 +863,53 @@ class ModelAgent:
         result["size_mm"]     = size_mm
         return result
 
-    def generate_all(self, slug: str, product_type: str, source_dir: Path, output_dir: Path) -> dict:
+    def generate_all(self, slug: str, source_dir: Path, output_dir: Path,
+                     product_type: str | None = None) -> dict:
+        """Generuje cutter + stamp STL dla wszystkich znalezionych rozmiarów SVG.
+
+        Szuka {SIZE}.svg w source_dir (np. S.svg, M.svg, L.svg).
+        Dla każdego rozmiaru generuje {SIZE}_cutter.stl i {SIZE}_stamp.stl
+        (chyba że podano product_type — wtedy tylko ten jeden typ).
+
+        Returns:
+            {
+                "slug": ...,
+                "stl_files": [...valid stl paths...],
+                "sizes": {
+                    "M": {"cutter": {valid, stl_path, ...}, "stamp": {...}},
+                    ...
+                }
+            }
+        """
         source_dir = Path(source_dir)
         output_dir = Path(output_dir)
-        sizes_result = {}
         size_map = _size_mm_map()
+        ptypes = [product_type] if product_type else ["cutter", "stamp"]
+        sizes_result: dict = {}
+        all_stl_files: list[str] = []
 
         for size_key in size_map:
             size_lower = size_key.lower()
             candidates = [
+                source_dir / f"{size_key}.svg",
+                source_dir / f"{size_lower}.svg",
                 source_dir / f"{slug}-{size_key}.svg",
-                source_dir / f"design_{size_lower}.svg",
                 source_dir / f"{slug}_{size_key}.svg",
                 source_dir / f"{slug}-{size_lower}.svg",
+                source_dir / f"design_{size_lower}.svg",
             ]
             svg_path = next((p for p in candidates if p.exists()), None)
             if svg_path is None:
                 continue
-            log.info("Processing %s -> %s", svg_path.name, size_key)
-            sizes_result[size_key] = self.generate(svg_path, product_type, size_key, output_dir)
+            log.info("Processing %s -> %s (%s)", svg_path.name, size_key, "+".join(ptypes))
+            sizes_result[size_key] = {}
+            for ptype in ptypes:
+                r = self.generate(svg_path, ptype, size_key, output_dir)
+                sizes_result[size_key][ptype] = r
+                if r.get("valid") and r.get("stl_path"):
+                    all_stl_files.append(str(r["stl_path"]))
 
-        return {"slug": slug, "product_type": product_type, "sizes": sizes_result}
+        return {"slug": slug, "stl_files": all_stl_files, "sizes": sizes_result}
 
     def _generate_via_openscad(self, contours, product_type, size_mm, slug, stl_path) -> int:
         scad_code = self.scad_gen.generate_scad(contours, product_type, size_mm, slug)

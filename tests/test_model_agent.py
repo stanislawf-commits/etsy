@@ -255,21 +255,56 @@ def test_generate_cutter_concave_shape(tmp_path):
 
 
 def test_generate_all(tmp_path):
-    """generate_all() przetwarza wszystkie rozmiary z katalogu source."""
+    """generate_all() generuje cutter+stamp dla wszystkich rozmiarów."""
     slug = "test-cutter"
     source_dir = tmp_path / "source"
     source_dir.mkdir()
     import shutil
     for size in ["S", "M", "L"]:
-        shutil.copy(FIXTURES / "sample_design.svg", source_dir / f"{slug}-{size}.svg")
+        # Nowe nazewnictwo: S.svg, M.svg, L.svg
+        shutil.copy(FIXTURES / "sample_design.svg", source_dir / f"{size}.svg")
 
     agent = create_model_agent("pure_python")
     result = agent.generate_all(
         slug=slug,
-        product_type="cutter",
         source_dir=source_dir,
         output_dir=tmp_path / "models",
     )
     assert len(result["sizes"]) >= 3
-    for size_key, r in result["sizes"].items():
-        assert r["valid"] is True, f"Size {size_key} failed: {r.get('error')}"
+    assert len(result["stl_files"]) >= 6  # 3 rozmiary × 2 typy
+    for size_key, types in result["sizes"].items():
+        assert "cutter" in types
+        assert "stamp" in types
+        assert types["cutter"]["valid"] is True, f"Cutter {size_key}: {types['cutter'].get('error')}"
+        assert types["stamp"]["valid"] is True, f"Stamp {size_key}: {types['stamp'].get('error')}"
+
+
+def test_generate_all_single_type(tmp_path):
+    """generate_all() z product_type generuje tylko jeden typ."""
+    slug = "test-cutter"
+    source_dir = tmp_path / "source"
+    source_dir.mkdir()
+    import shutil
+    shutil.copy(FIXTURES / "sample_design.svg", source_dir / "M.svg")
+
+    agent = create_model_agent("pure_python")
+    result = agent.generate_all(
+        slug=slug,
+        source_dir=source_dir,
+        output_dir=tmp_path / "models",
+        product_type="cutter",
+    )
+    assert "M" in result["sizes"]
+    assert "cutter" in result["sizes"]["M"]
+    assert "stamp" not in result["sizes"]["M"]
+    assert len(result["stl_files"]) == 1
+
+
+def test_stl_naming_convention(tmp_path):
+    """STL nazywa się {SIZE}_{product_type}.stl (np. M_cutter.stl)."""
+    svg_path = FIXTURES / "sample_design.svg"
+    agent = create_model_agent("pure_python")
+    result = agent.generate(svg_path, "cutter", "M", tmp_path)
+    assert result["valid"] is True
+    stl_path = Path(result["stl_path"])
+    assert stl_path.name == "M_cutter.stl"

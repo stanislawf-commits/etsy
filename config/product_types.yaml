@@ -26,9 +26,11 @@ stamp:
   label_plural: "Cookie Stamps"
   etsy_search_terms: ["cookie stamp", "embosser", "cookie press"]
   # Parametry 3D modelu (mm)
-  base_height: 4.0         # grubość podstawy
-  relief_height: 1.5       # wypukłość wzoru
+  wall_thickness: 1.8      # grubość ścianki (jak w cutterze)
+  base_height: 3.0         # grubość podstawy (Sprint 3: 3mm)
+  relief_height: 2.0       # wypukłość wzoru (Sprint 3: 2mm)
   handle_height: 15.0      # chwyt (opcjonalny)
+  clearance_3d: 0.2        # tolerancja drukarki (fit cutter↔stamp)
   sizes:
     S:  { width_mm: 60,  height_mm: 60  }
     M:  { width_mm: 75,  height_mm: 75  }

@@ -214,6 +214,20 @@ def list_by_status(status: str) -> list[str]:
     return result
 
 
+def list_stl_files(slug: str, product_type: str = "cutter") -> list[Path]:
+    """
+    Zwraca listę plików STL w katalogu models/ produktu.
+    Pliki posortowane alfabetycznie (S → M → L → XL → ...).
+
+    Returns:
+        Lista Path do plików .stl (może być pusta).
+    """
+    models_dir = product_dir(slug, product_type) / "models"
+    if not models_dir.is_dir():
+        return []
+    return sorted(models_dir.glob("*.stl"))
+
+
 def load_all_products() -> list[dict]:
     """
     Ładuje meta + listing dla wszystkich produktów.

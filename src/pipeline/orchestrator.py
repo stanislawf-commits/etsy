@@ -16,6 +16,7 @@ from rich.table import Table
 from src.agents import trend_agent, listing_agent
 from src.agents.design_agent import create_design_agent
 from src.agents.model_agent import create_model_agent
+from src.utils.printability_validator import validate_svg
 from src.utils.product_io import DATA_DIR, ensure_product_dir, save_meta, save_listing
 
 log = logging.getLogger(__name__)
@@ -101,25 +102,37 @@ def run_pipeline(
     if design_result.get("success") and design_result.get("files"):
         with console.status("[bold green]Generuję STL (ModelAgent)...[/bold green]"):
             try:
+                from src.utils.config_loader import cfg as _cfg
+                size_map = _cfg("product_types").get("cutter", {}).get("sizes", {})
+
                 source_dir = Path(design_result["files"][0]["path"]).parent
+
+                # Walidacja SVG przed generowaniem STL
+                for file_entry in design_result.get("files", []):
+                    svg_path = Path(file_entry["path"])
+                    size_key = file_entry.get("size", "M")
+                    size_mm = float(size_map.get(size_key, {}).get("width_mm", 75))
+                    vr = validate_svg(svg_path, size_mm)
+                    if vr.errors:
+                        log.warning("SVG validation errors [%s %s]: %s",
+                                    slug, size_key, "; ".join(vr.errors))
+                    if vr.warnings:
+                        log.info("SVG validation warnings [%s %s]: %s",
+                                 slug, size_key, "; ".join(vr.warnings))
+
                 models_dir = product_dir / "models"
                 model_agent = create_model_agent("auto")
                 model_result = model_agent.generate_all(
                     slug=slug,
-                    product_type=product_type,
                     source_dir=source_dir,
                     output_dir=models_dir,
                 )
-                stl_files = [
-                    str(v["stl_path"])
-                    for v in model_result.get("sizes", {}).values()
-                    if v.get("valid") and v.get("stl_path")
-                ]
+                stl_files = model_result.get("stl_files", [])
                 log.info("ModelAgent: sizes=%s  stl_files=%d",
                          list(model_result["sizes"].keys()), len(stl_files))
             except Exception as exc:
                 log.warning("ModelAgent failed: %s", exc)
-                model_result = {"sizes": {}, "error": str(exc)}
+                model_result = {"sizes": {}, "stl_files": [], "error": str(exc)}
 
     # ── 6. Render (obrazy produktowe) ─────────────────────────────────────────
     models_ok = len(stl_files) > 0
