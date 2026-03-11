@@ -32,6 +32,8 @@ from src.utils.config_loader import cfg
 
 log = logging.getLogger(__name__)
 
+BEZIER_SAMPLES = 32  # samples per Bézier curve segment (higher = smoother edges)
+
 
 def _cutter_cfg() -> dict:
     """Zwraca parametry cutter z product_types.yaml."""
@@ -207,8 +209,8 @@ class SVGPathParser:
                     x1, y1 = vals[0], vals[1]
                     x2, y2 = vals[2], vals[3]
                     ex, ey = vals[4], vals[5]
-                for k in range(1, 9):
-                    tk = k / 8.0
+                for k in range(1, BEZIER_SAMPLES + 1):
+                    tk = k / BEZIER_SAMPLES
                     bx = (1-tk)**3*x + 3*(1-tk)**2*tk*x1 + 3*(1-tk)*tk**2*x2 + tk**3*ex
                     by = (1-tk)**3*y + 3*(1-tk)**2*tk*y1 + 3*(1-tk)*tk**2*y2 + tk**3*ey
                     current.append((bx * scale, by * scale))
@@ -222,8 +224,8 @@ class SVGPathParser:
                 else:
                     cx_, cy_ = vals[0], vals[1]
                     ex, ey   = vals[2], vals[3]
-                for k in range(1, 9):
-                    tk = k / 8.0
+                for k in range(1, BEZIER_SAMPLES + 1):
+                    tk = k / BEZIER_SAMPLES
                     bx = (1-tk)**2*x + 2*(1-tk)*tk*cx_ + tk**2*ex
                     by = (1-tk)**2*y + 2*(1-tk)*tk*cy_ + tk**2*ey
                     current.append((bx * scale, by * scale))
@@ -388,18 +390,41 @@ class PurePythonSTLWriter:
     """Generuje binarne pliki STL bez zewnetrznych zaleznosci."""
 
     def generate_cutter_stl(self, contour: list, config: dict, output_path: Path) -> int:
-        base_h = config.get("base_thick",   BASE_THICK_MM)
-        wall_z = config.get("total_height", TOTAL_HEIGHT_MM)
-        wall_w = config.get("wall_thick",   WALL_THICK_MM)
+        base_h   = config.get("base_thick",   BASE_THICK_MM)
+        wall_z   = config.get("total_height", TOTAL_HEIGHT_MM)
+        wall_w   = config.get("wall_thick",   WALL_THICK_MM)
+        blade    = config.get("cutting_edge", CUTTING_EDGE_MM)
+        taper_h  = config.get("taper_height", 3.0)
+        fillet_r = config.get("fillet_top",   1.0)
 
         outer = self._offset_contour(contour, wall_w)
+        # Strefa taper: base_h → base_h+taper_h (ściana przechodzi blade→wall_w)
+        taper_top = base_h + taper_h
+        # Strefa prosta: taper_top → wall_z-fillet_r
+        straight_top = wall_z - fillet_r
+        # Kontury wewnętrzne
+        inner_blade = self._offset_contour(contour, -blade)    # przy ostrzu (z=base_h)
+        inner_full  = self._offset_contour(contour, -wall_w)   # po taperze (z=taper_top)
+
         triangles = []
-        triangles.extend(self._triangulate_flat(outer,   0.0,    flip=True))
-        triangles.extend(self._triangulate_flat(outer,   base_h, flip=False))
-        triangles.extend(self.extrude_contour(outer,  base_h, 0.0))
-        triangles.extend(self._ring(contour, outer, base_h, flip=False))
-        triangles.extend(self.extrude_contour(contour, wall_z - base_h, base_h, flip=True))
-        triangles.extend(self._triangulate_flat(contour, wall_z, flip=True))
+        # --- Dół: solid base ---
+        triangles.extend(self._triangulate_flat(outer, 0.0, flip=True))   # spód
+        triangles.extend(self.extrude_contour(outer, base_h, 0.0))        # ścianki boczne bazy
+        # Góra bazy: annular ring (outer → inner_blade)
+        triangles.extend(self._ring(inner_blade, outer, base_h, flip=False))
+        triangles.extend(self._triangulate_flat(inner_blade, base_h, flip=False))
+        # --- Strefa taper (ostrze → pełna ściana) ---
+        triangles.extend(self._build_taper_section(contour, base_h, taper_h, blade, wall_w))
+        # Góra taper: przejście inner_blade → inner_full (annular ring przy taper_top)
+        triangles.extend(self._ring(inner_full, inner_blade, taper_top, flip=False))
+        # --- Prosta strefa (stała grubość ściany) ---
+        if straight_top > taper_top:
+            triangles.extend(self.extrude_contour(outer,      straight_top - taper_top,  taper_top))
+            triangles.extend(self.extrude_contour(inner_full, -(straight_top - taper_top), taper_top, flip=True))
+        # --- Fillet (zaokrąglenie górnej krawędzi) ---
+        triangles.extend(self._build_fillet(contour, wall_z, fillet_r, wall_w))
+        # --- Górna czapka (inner_full na wysokości straight_top..wall_z) ---
+        triangles.extend(self._triangulate_flat(inner_full, straight_top, flip=True))
 
         self.write_binary_stl(triangles, output_path)
         return len(triangles)
@@ -456,31 +481,117 @@ class PurePythonSTLWriter:
                 triangles.append((norm, v0, v2, v3))
         return triangles
 
+    def _earclip_triangulate(self, points: list) -> list:
+        """Ear-clipping triangulation dla kształtów wklęsłych. O(n²), max ~200 pkt."""
+        pts = list(points)
+        n = len(pts)
+        if n < 3:
+            return []
+
+        def cross2d(o, a, b):
+            return (a[0]-o[0])*(b[1]-o[1]) - (a[1]-o[1])*(b[0]-o[0])
+
+        def point_in_triangle(p, a, b, c):
+            d1 = cross2d(p, a, b)
+            d2 = cross2d(p, b, c)
+            d3 = cross2d(p, c, a)
+            has_neg = (d1 < 0) or (d2 < 0) or (d3 < 0)
+            has_pos = (d1 > 0) or (d2 > 0) or (d3 > 0)
+            return not (has_neg and has_pos)
+
+        # upewnij się że orientacja CCW
+        area = sum(cross2d(pts[0], pts[i], pts[i+1]) for i in range(1, n-1))
+        if area < 0:
+            pts = pts[::-1]
+
+        indices = list(range(n))
+        triangles = []
+
+        while len(indices) > 3:
+            ear_found = False
+            for idx_pos, vi in enumerate(indices):
+                prev_i = indices[(idx_pos - 1) % len(indices)]
+                next_i = indices[(idx_pos + 1) % len(indices)]
+                a, b, c = pts[prev_i], pts[vi], pts[next_i]
+
+                if cross2d(a, b, c) <= 0:  # wklęsły — nie jest uchem
+                    continue
+
+                is_ear = True
+                for other_pos, other_i in enumerate(indices):
+                    if other_i in (prev_i, vi, next_i):
+                        continue
+                    if point_in_triangle(pts[other_i], a, b, c):
+                        is_ear = False
+                        break
+
+                if is_ear:
+                    triangles.append((prev_i, vi, next_i))
+                    indices.pop(idx_pos)
+                    ear_found = True
+                    break
+
+            if not ear_found:
+                break  # zdegenerowany wielokąt
+
+        if len(indices) == 3:
+            triangles.append(tuple(indices))
+
+        return triangles
+
     def _triangulate_flat(self, contour: list, z: float, flip: bool = False) -> list:
+        """Triangulacja płaskiej powierzchni — używa ear-clipping (poprawne dla kształtów wklęsłych)."""
         if len(contour) < 3:
             return []
-        triangles = []
-        v0 = (contour[0][0], contour[0][1], z)
         norm = (0.0, 0.0, -1.0 if flip else 1.0)
-        for i in range(1, len(contour) - 1):
-            v1 = (contour[i][0],   contour[i][1],   z)
-            v2 = (contour[i+1][0], contour[i+1][1], z)
+        idx_triples = self._earclip_triangulate(contour)
+        pts = list(contour)
+        triangles = []
+        for i0, i1, i2 in idx_triples:
+            v0 = (pts[i0][0], pts[i0][1], z)
+            v1 = (pts[i1][0], pts[i1][1], z)
+            v2 = (pts[i2][0], pts[i2][1], z)
             if flip:
                 triangles.append((norm, v0, v2, v1))
             else:
                 triangles.append((norm, v0, v1, v2))
         return triangles
 
-    def _offset_contour(self, contour: list, offset: float) -> list:
-        if not contour:
-            return contour
-        cx = sum(p[0] for p in contour) / len(contour)
-        cy = sum(p[1] for p in contour) / len(contour)
-        r_avg = sum(math.hypot(p[0]-cx, p[1]-cy) for p in contour) / len(contour)
-        if r_avg < 1e-6:
-            return contour
-        sc = (r_avg + offset) / r_avg
-        return [(cx + (p[0]-cx)*sc, cy + (p[1]-cy)*sc) for p in contour]
+    def _lateral_ring(self, bottom_pts: list, top_pts: list, z_bottom: float, z_top: float) -> list:
+        """Tworzy boczne ściany między dwoma konturami na różnych wysokościach."""
+        triangles = []
+        n = min(len(bottom_pts), len(top_pts))
+        for i in range(n):
+            a_bot = (bottom_pts[i][0],       bottom_pts[i][1],       z_bottom)
+            b_bot = (bottom_pts[(i+1)%n][0], bottom_pts[(i+1)%n][1], z_bottom)
+            a_top = (top_pts[i][0],          top_pts[i][1],          z_top)
+            b_top = (top_pts[(i+1)%n][0],    top_pts[(i+1)%n][1],    z_top)
+            norm0 = self._face_normal(a_bot, b_bot, b_top)
+            norm1 = self._face_normal(a_bot, b_top, a_top)
+            triangles.append((norm0, a_bot, b_bot, b_top))
+            triangles.append((norm1, a_bot, b_top, a_top))
+        return triangles
+
+    def _offset_contour(self, points: list, distance: float) -> list:
+        """Offset konturu o distance mm. Używa Shapely buffer() (poprawny dla kształtów wklęsłych).
+        Fallback do skalowania centroidalnego gdy Shapely niedostępny."""
+        if not points:
+            return points
+        try:
+            from shapely.geometry import Polygon
+            poly = Polygon(points)
+            buffered = poly.buffer(distance, join_style="round", resolution=32)
+            if buffered.is_empty:
+                return points
+            return list(buffered.exterior.coords[:-1])  # bez duplikatu ostatniego punktu
+        except ImportError:
+            cx = sum(p[0] for p in points) / len(points)
+            cy = sum(p[1] for p in points) / len(points)
+            r_avg = sum(math.hypot(p[0]-cx, p[1]-cy) for p in points) / len(points)
+            if r_avg < 1e-9:
+                return points
+            sc = (r_avg + distance) / r_avg
+            return [(cx + (p[0]-cx)*sc, cy + (p[1]-cy)*sc) for p in points]
 
     def _ring(self, inner: list, outer: list, z: float, flip: bool = False) -> list:
         triangles = []
@@ -497,6 +608,49 @@ class PurePythonSTLWriter:
             else:
                 triangles.append((norm, ai, bi, bo))
                 triangles.append((norm, ai, bo, ao))
+        return triangles
+
+    def _build_taper_section(self, outer_pts: list, z_bottom: float,
+                              taper_h: float, wall_edge: float, wall_full: float) -> list:
+        """Geometria taperowanego ostrza: strefa z_bottom..z_bottom+taper_h.
+        Ściana przechodzi od wall_edge (ostrze) do wall_full (pełna grubość)."""
+        steps = max(6, int(taper_h / 0.5))
+        triangles = []
+
+        prev_outer = self._offset_contour(outer_pts, 0)
+        prev_inner = self._offset_contour(outer_pts, -wall_edge)
+        prev_z = z_bottom
+
+        for step in range(1, steps + 1):
+            t = step / steps
+            z = z_bottom + taper_h * t
+            wall = wall_edge + (wall_full - wall_edge) * t
+
+            curr_outer = self._offset_contour(outer_pts, 0)
+            curr_inner = self._offset_contour(outer_pts, -wall)
+
+            triangles.extend(self._lateral_ring(prev_outer, curr_outer, prev_z, z))
+            triangles.extend(self._lateral_ring(curr_inner, prev_inner, z, prev_z))
+
+            prev_outer, prev_inner, prev_z = curr_outer, curr_inner, z
+
+        return triangles
+
+    def _build_fillet(self, outer_pts: list, z_top: float, fillet_r: float, wall_full: float) -> list:
+        """Zaokrąglenie górnej krawędzi — łuk od pionowej ściany do poziomego plateau."""
+        fillet_steps = 4
+        triangles = []
+        prev_pts = self._offset_contour(outer_pts, 0)
+        prev_z = z_top - fillet_r
+
+        for step in range(1, fillet_steps + 1):
+            angle = (math.pi / 2) * step / fillet_steps
+            r_offset = fillet_r * (1 - math.cos(angle))
+            z = z_top - fillet_r + fillet_r * math.sin(angle)
+            curr_pts = self._offset_contour(outer_pts, r_offset)
+            triangles.extend(self._lateral_ring(prev_pts, curr_pts, prev_z, z))
+            prev_pts, prev_z = curr_pts, z
+
         return triangles
 
     def _face_normal(self, v0, v1, v2):
@@ -662,6 +816,8 @@ class ModelAgent:
             "wall_thick":    float(pt_cfg.get("wall_thickness", WALL_THICK_MM)),
             "cutting_edge":  float(pt_cfg.get("blade_thickness", CUTTING_EDGE_MM)),
             "relief_height": float(pt_cfg.get("relief_height",  RELIEF_HEIGHT_MM)),
+            "taper_height":  float(pt_cfg.get("taper_height",   3.0)),
+            "fillet_top":    float(pt_cfg.get("fillet_top",     1.0)),
         }
 
         if self.mode == "openscad":

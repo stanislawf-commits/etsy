@@ -10,6 +10,8 @@ cutter:
   blade_thickness: 0.4     # ostrze (czubek)
   total_height: 12.0       # całkowita wysokość
   base_height: 4.0         # wysokość podstawy (obrzeże)
+  taper_height: 3.0        # mm — strefa ostrza od dołu (blade→wall)
+  fillet_top: 1.0          # mm — promień zaokrąglenia górnej krawędzi
   # Rozmiary (szerokość/wysokość kształtu w mm)
   sizes:
     S:    { width_mm: 60,  height_mm: 60  }

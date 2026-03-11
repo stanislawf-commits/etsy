@@ -21,3 +21,6 @@ openai               # DALL-E 3
 
 # Trends (optional — graceful fallback if missing)
 pytrends             # Google Trends
+
+# Geometry (STL offset, polygon boolean ops)
+shapely>=2.0.0

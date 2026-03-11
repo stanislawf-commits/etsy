@@ -13,6 +13,7 @@ from src.agents.model_agent import (
     create_model_agent,
     _size_mm_map,
     _cutter_cfg,
+    BEZIER_SAMPLES,
 )
 
 
@@ -144,6 +145,112 @@ def test_generate_stamp_from_fixture(tmp_path):
         output_dir=tmp_path,
     )
     assert result["valid"] is True
+    assert Path(result["stl_path"]).exists()
+
+
+# ── Faza 6 Sprint 1: ear-clipping, Shapely offset, Bézier, taper/fillet ───────
+
+def test_earclip_convex():
+    """Kwadrat (4 wierzchołki) → 2 trójkąty."""
+    writer = PurePythonSTLWriter()
+    square = [(0, 0), (10, 0), (10, 10), (0, 10)]
+    triangles = writer._earclip_triangulate(square)
+    assert len(triangles) == 2
+    # Każdy trójkąt to 3 indeksy
+    for tri in triangles:
+        assert len(tri) == 3
+
+
+def test_earclip_concave():
+    """Gwiazda 5-ramienna (wklęsła) → triangulacja bez samoprzecięć."""
+    import math
+    writer = PurePythonSTLWriter()
+    # 5-ramienna gwiazda: naprzemienne punkty na R_outer i R_inner
+    R_outer, R_inner, n = 50.0, 20.0, 5
+    pts = []
+    for i in range(n * 2):
+        angle = math.pi * i / n - math.pi / 2
+        r = R_outer if i % 2 == 0 else R_inner
+        pts.append((r * math.cos(angle), r * math.sin(angle)))
+
+    triangles = writer._earclip_triangulate(pts)
+    assert len(triangles) == len(pts) - 2  # n-2 trójkątów dla wielokątu prostego
+    # Każdy indeks musi być w zakresie
+    for tri in triangles:
+        for idx in tri:
+            assert 0 <= idx < len(pts)
+
+
+def test_shapely_offset_star():
+    """Offset gwiazdy ±2mm — Shapely buffer daje inny kontur niż oryginał."""
+    import math
+    writer = PurePythonSTLWriter()
+    R_outer, R_inner, n = 30.0, 12.0, 5
+    pts = []
+    for i in range(n * 2):
+        angle = math.pi * i / n - math.pi / 2
+        r = R_outer if i % 2 == 0 else R_inner
+        pts.append((r * math.cos(angle), r * math.sin(angle)))
+
+    offset_out = writer._offset_contour(pts, 2.0)
+    offset_in  = writer._offset_contour(pts, -2.0)
+    assert offset_out != pts
+    assert offset_in  != pts
+    assert len(offset_out) >= 3
+    assert len(offset_in)  >= 3
+
+
+def test_bezier_samples():
+    """Parser cubic Bézier → ≥ BEZIER_SAMPLES punktów na krzywą."""
+    # Jedna krzywa C z M startowego → powinno dodać BEZIER_SAMPLES punktów
+    svg = (
+        '<svg width="75mm" viewBox="0 0 750 750">'
+        '<path d="M 0,0 C 100,0 200,200 300,200 Z"/>'
+        '</svg>'
+    )
+    parser = SVGPathParser()
+    contours = parser.parse(svg)
+    assert len(contours) >= 1
+    # Kontur: 1 punkt M + BEZIER_SAMPLES punktów z C ≥ 32
+    total_pts = sum(len(c) for c in contours)
+    assert total_pts >= BEZIER_SAMPLES
+
+
+def test_taper_stl_geometry(tmp_path):
+    """Generuj cutter z taper+fillet — plik >84 bytes, valid=True."""
+    stl_path = tmp_path / "taper_test.stl"
+    writer = PurePythonSTLWriter()
+    contour = [(0, 0), (20, 0), (20, 20), (0, 20)]
+    cfg_dict = {
+        "total_height": 12.0,
+        "base_thick":   4.0,
+        "wall_thick":   1.8,
+        "cutting_edge": 0.4,
+        "relief_height": 1.5,
+        "taper_height": 3.0,
+        "fillet_top":   1.0,
+    }
+    n_tri = writer.generate_cutter_stl(contour, cfg_dict, stl_path)
+    assert stl_path.exists()
+    assert stl_path.stat().st_size > 84
+    assert n_tri > 0
+    v = STLValidator()
+    result = v.validate(stl_path, cfg_dict)
+    assert result["valid"] is True
+
+
+def test_generate_cutter_concave_shape(tmp_path):
+    """Snowflake SVG (kształt wklęsły) → valid STL."""
+    svg_path = FIXTURES / "snowflake.svg"
+    agent = create_model_agent("pure_python")
+    result = agent.generate(
+        svg_path=svg_path,
+        product_type="cutter",
+        size_key="M",
+        output_dir=tmp_path,
+    )
+    assert result["valid"] is True, f"STL invalid: {result.get('error')}"
+    assert result["n_triangles"] > 0
     assert Path(result["stl_path"]).exists()
 
 

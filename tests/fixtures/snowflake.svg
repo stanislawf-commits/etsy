@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="75mm" height="75mm" viewBox="0 0 750 750">
+  <!-- Snowflake: 6-pointed star (concave shape) via polygon -->
+  <polygon points="
+    375,100
+    415,290
+    560,200
+    460,350
+    600,375
+    460,400
+    560,550
+    415,460
+    375,650
+    335,460
+    190,550
+    290,400
+    150,375
+    290,350
+    190,200
+    335,290
+  "/>
+</svg>
