@@ -1,0 +1,240 @@
+=== 1. git log --oneline -20 ===
+3b1698f feat(publish): Sprint 7.3 — publish pipeline fixes + publish-all command
+87faaa1 feat(pipeline): Sprint 7.2 — all-sizes generation + --topics batch option
+6068167 feat(render): Sprint 7.1 — dual-type STL support in render agents
+ccf810f docs: update ARCHITECTURE — Phase 6 Sprint 3 marked complete
+931083f feat(stl): Phase 6 Sprint 3 — stamp STL, new naming, generate_all dual-type, printability integration
+3d743c1 docs: update roadmap — Phase 6 Sprint 1+2 marked complete, Sprint 3 TODO
+8eaa8f1 feat(design): Phase 6 Sprint 2 — compound SVG, 31 shapes, printability validator
+286f481 fix(stl): watertight geometry repair — 10/12 products now watertight
+064a92a feat(stl): Phase 6 Sprint 1 — STL model repair (Bézier, Shapely offset, ear-clipping, taper, fillet)
+91b37c0 docs: add Phase 6 plan — production SVG+STL quality redesign
+d86f46c Create svg>stl
+4015d3d Add files via upload
+48b4e4d Create svg -> stl
+7ca2a73 feat: generate 10 new products via batch pipeline
+44a529b feat: switch default model to claude-opus-4-6
+ccdbb9d fix: SVG generation quality — proper bezier paths, validation, retry logic
+43f2a3d refactor: restructure products to {type}/{slug}/ (v3 layout, 5000-product scale)
+c807537 docs: mark Phase 5 complete in roadmap
+3ccac44 feat: Phase 5 — automation (cron scan, webhook, restock alert)
+d8e7a60 docs: mark Phase 4 complete in roadmap
+
+=== 2. Python files (bez .venv) ===
+./cli.py
+./scripts/test_svg_stl_batch.py
+./src/agents/blender_render_agent.py
+./src/agents/blender_scripts/__init__.py
+./src/agents/blender_scripts/render_product.py
+./src/agents/design_agent.py
+./src/agents/etsy_agent.py
+./src/agents/__init__.py
+./src/agents/listing_agent.py
+./src/agents/model_agent.py
+./src/agents/render_agent.py
+./src/agents/trend_agent.py
+./src/db/__init__.py
+./src/db/migrate.py
+./src/db/models.py
+./src/db/restructure.py
+./src/db/session.py
+./src/__init__.py
+./src/jobs/daily_trend_scan.py
+./src/jobs/__init__.py
+./src/jobs/restock_alert.py
+./src/pipeline/__init__.py
+./src/pipeline/orchestrator.py
+./src/utils/claude_client.py
+./src/utils/config_loader.py
+./src/utils/etsy_analytics.py
+./src/utils/__init__.py
+./src/utils/printability_validator.py
+./src/utils/product_io.py
+./src/webhooks/etsy_webhook.py
+./src/webhooks/__init__.py
+./tests/conftest.py
+./tests/__init__.py
+./tests/test_blender_render_agent.py
+./tests/test_cli_batch.py
+./tests/test_config_loader.py
+./tests/test_daily_trend_scan.py
+./tests/test_design_agent.py
+./tests/test_etsy_analytics.py
+./tests/test_etsy_webhook.py
+./tests/test_listing_agent.py
+./tests/test_model_agent.py
+./tests/test_printability_validator.py
+./tests/test_product_io.py
+./tests/test_restock_alert.py
+./tests/test_trend_agent.py
+
+=== 3. wc -l ===
+   425 src/agents/blender_render_agent.py
+  1384 src/agents/design_agent.py
+   296 src/agents/etsy_agent.py
+     0 src/agents/__init__.py
+   175 src/agents/listing_agent.py
+   982 src/agents/model_agent.py
+   396 src/agents/render_agent.py
+   207 src/agents/trend_agent.py
+     0 src/pipeline/__init__.py
+   215 src/pipeline/orchestrator.py
+   800 cli.py
+  4880 total
+
+=== 4. Status produktów ===
+     16     "status": "dry_run"
+      6   "status": "model_error",
+     16   "status": "ready_for_manual_publish",
+
+=== 5. Typy plików produktów ===
+     80 jpg
+     76 json
+    126 stl
+     84 svg
+
+=== 6. Rozmiar data/products/ ===
+55M	data/products/
+
+=== 7. CLAUDE.md ===
+# etsy3d - Opis projektu dla Claude Code
+
+## Cel projektu
+
+Automatyczny pipeline do tworzenia i publikowania produktów drukowanych w 3D
+w sklepie Etsy. Claude (Anthropic API) generuje opisy, tytuły, tagi SEO i
+strategie cenowe. Pipeline prowadzi nowy produkt od szkicu (draft) do
+opublikowania (published).
+
+## Architektura
+
+```
+cli.py                  # punkt wejscia CLI (click)
+src/
+  agents/               # agenci Claude do generowania tresci
+  pipeline/             # kroki pipeline (draft -> review -> publish)
+  utils/                # pomocnicze funkcje (Etsy API, pliki, logi)
+config/                 # konfiguracja YAML (kategorie, cenniki, szablony)
+data/
+  products/             # pliki JSON z danymi produktow (jeden plik = jeden produkt)
+  templates/            # szablony promptow dla agentow
+logs/                   # logi dzialan pipeline
+docs/                   # dokumentacja
+tests/                  # testy jednostkowe i integracyjne
+```
+
+## Technologie
+
+- **Python 3.11+**
+- **anthropic** - Claude API (generowanie tresci, SEO, ceny)
+- **openai** - DALL-E (generowanie grafik mockup, opcjonalnie)
+- **click** - CLI
+- **rich** - sformatowane wyjscie w terminalu
+- **requests** - Etsy API v3
+- **python-dotenv** - zmienne srodowiskowe
+- **pillow** - obrobka obrazow
+- **svgwrite** - generowanie grafik wektorowych SVG
+
+## Zasady pracy
+
+### Kod
+
+- Python 3.11+, type hints tam gdzie pomaga czytelnosci
+- Brak nadmiarowych abstrakcji — jeden plik = jeden agent lub jeden krok
+- Nie uzywac klas jesli wystarczy funkcja
+- Logowanie przez `logging` do `logs/` (nie print)
+- Sekrety tylko przez `.env` i `os.getenv()`, nigdy hardcoded
+- Testy w `tests/` dla kazdego agenta i kroku pipeline
+
+### CLI (`cli.py`)
+
+- Komendy: `health`, `new-product <name>`, `status [slug]`, `list`
+- Wyjscie przez `rich.console.Console` — tabele, kolory, czytelnosc
+- Przy bledzie: wypisz komunikat i `sys.exit(1)`
+
+### Agenci (`src/agents/`)
+
+- Kazdy agent to plik `<nazwa>_agent.py` z funkcja `run(product: dict) -> dict`
+- Agent zwraca zaktualizowany slownik produktu z nowymi polami
+- Uzyj `anthropic.Anthropic()` z kluczem z `os.getenv("ANTHROPIC_API_KEY")`
+- Domyslny model: `claude-opus-4-6` (aktualizuj jesli pojawi sie nowszy)
+
+### Pipeline (`src/pipeline/`)
+
+- Kazdy krok to plik `<numer>_<nazwa>.py` z funkcja `run(product: dict) -> dict`
+- Kroki wywolywane sekwencyjnie, stan zapisywany do `data/products/<slug>.json`
+- Krok moze byc pominiely jesli pole juz istnieje w JSON (idempotentnosc)
+
+### Dane produktu (`data/products/<slug>.json`)
+
+Struktura pliku produktu:
+```json
+{
+  "slug": "vase-modern-01",
+  "name": "Modern Vase 01",
+  "category": "decor",
+  "description": "",
+  "status": "draft",
+  "steps_completed": [],
+  "etsy_title": "",
+  "etsy_description": "",
+  "etsy_tags": [],
+  "etsy_price": null,
+  "etsy_listing_id": null
+}
+```
+
+### Git
+
+- Commituj po kazdym wiekszym kroku (nowy agent, nowy krok pipeline, nowa komenda)
+- Komunikaty commitow po angielsku, format: `type: opis` (feat, fix, refactor, docs)
+- Nie commituj `.env`, `logs/`, `__pycache__/`
+
+## Komendy CLI
+
+```bash
+python cli.py health                        # sprawdz konfiguracje
+python cli.py new-product "Modern Vase"     # nowy produkt
+python cli.py new-product "Ring" -c jewelry # z kategoria
+python cli.py status                        # wszystkie produkty
+python cli.py status modern-vase            # konkretny produkt
+python cli.py list                          # tabela produktow
+python cli.py list --status-filter draft    # filtruj
+```
+
+## Zmienne srodowiskowe
+
+Skopiuj `.env.example` do `.env` i uzupelnij klucze:
+
+```
+ANTHROPIC_API_KEY=   # wymagane
+OPENAI_API_KEY=      # opcjonalne (obrazy)
+ETSY_API_KEY=        # wymagane do publikacji
+ETSY_API_SECRET=     # wymagane do publikacji
+ETSY_SHOP_ID=        # wymagane do publikacji
+```
+
+=== 8. Lista produktów ===
+Produktów (meta.json): 22
+  celestial-moon-stars                status=ready_for_manual_publish
+  christmas-snowflake                 status=model_error
+  cottagecore-mushrooms               status=ready_for_manual_publish
+  cute-cactus                         status=ready_for_manual_publish
+  cute-cat                            status=ready_for_manual_publish
+  cute-dog                            status=ready_for_manual_publish
+  easter-bunny                        status=model_error
+  easter-egg                          status=model_error
+  floral-wreath                       status=ready_for_manual_publish
+  geometric-abstract                  status=ready_for_manual_publish
+  gingerbread-house                   status=model_error
+  halloween-ghost                     status=model_error
+  halloween-pumpkin                   status=model_error
+  hearts-romantic                     status=ready_for_manual_publish
+  little-bird                         status=ready_for_manual_publish
+  llama-alpaca                        status=ready_for_manual_publish
+  mountain-climbing                   status=ready_for_manual_publish
+  red-apple                           status=ready_for_manual_publish
+  strawberry                          status=ready_for_manual_publish
+  teddy-bear                          status=ready_for_manual_publish
+  tropical-fish                       status=ready_for_manual_publish
+  wise-owl                            status=ready_for_manual_publish
