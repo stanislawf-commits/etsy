@@ -117,7 +117,14 @@ class SVGPathParser:
             if w > 0 and h > 0:
                 contours.append([(x, y), (x+w, y), (x+w, y+h), (x, y+h)])
 
-        return [c for c in contours if len(c) >= 3]
+        # Usuń zamykający duplikat: jeśli ostatni punkt == pierwszy, usuń go
+        cleaned = []
+        for c in contours:
+            if len(c) >= 3 and c[-1] == c[0]:
+                c = c[:-1]
+            if len(c) >= 3:
+                cleaned.append(c)
+        return cleaned
 
     def _extract_scale(self, svg_content: str) -> float:
         m_vb = re.search(r'viewBox="([^"]+)"', svg_content, re.IGNORECASE)
@@ -390,41 +397,53 @@ class PurePythonSTLWriter:
     """Generuje binarne pliki STL bez zewnetrznych zaleznosci."""
 
     def generate_cutter_stl(self, contour: list, config: dict, output_path: Path) -> int:
+        """Generuje watertight STL cuttera.
+
+        Struktura (z=0 = ostrze/dół, z=wall_z = baza/uchwyt u góry):
+          [A] Spód (z=0): annular ring ostrza (blade_in → outer)
+          [B+C] Strefa taper (z=0..taper_h): outer stały, inner blade→full
+          [D+E] Prosta strefa tnąca (z=taper_h..cookie_h): proste ściany
+          [F+G] Zamknięcie góry strefy tnącej (z=cookie_h): ring + face
+          [H]   Ścianki bazy (z=cookie_h..wall_z)
+          [I]   Wierzch bazy (z=wall_z)
+        """
         base_h   = config.get("base_thick",   BASE_THICK_MM)
         wall_z   = config.get("total_height", TOTAL_HEIGHT_MM)
         wall_w   = config.get("wall_thick",   WALL_THICK_MM)
         blade    = config.get("cutting_edge", CUTTING_EDGE_MM)
         taper_h  = config.get("taper_height", 3.0)
-        fillet_r = config.get("fillet_top",   1.0)
 
-        outer = self._offset_contour(contour, wall_w)
-        # Strefa taper: base_h → base_h+taper_h (ściana przechodzi blade→wall_w)
-        taper_top = base_h + taper_h
-        # Strefa prosta: taper_top → wall_z-fillet_r
-        straight_top = wall_z - fillet_r
-        # Kontury wewnętrzne
-        inner_blade = self._offset_contour(contour, -blade)    # przy ostrzu (z=base_h)
-        inner_full  = self._offset_contour(contour, -wall_w)   # po taperze (z=taper_top)
+        # Kluczowe kontury (wszystkie offsety od outer, nie od contour)
+        outer  = self._offset_contour(contour, wall_w)   # zewnętrzna krawędź (stała)
+        b_in   = self._offset_contour(outer, -blade)     # inner przy ostrzu (z=0)
+        f_in   = self._offset_contour(outer, -wall_w)    # inner przy pełnej ścianie ≈ contour
+
+        cookie_h = wall_z - base_h  # wysokość strefy tnącej
 
         triangles = []
-        # --- Dół: solid base ---
-        triangles.extend(self._triangulate_flat(outer, 0.0, flip=True))   # spód
-        triangles.extend(self.extrude_contour(outer, base_h, 0.0))        # ścianki boczne bazy
-        # Góra bazy: annular ring (outer → inner_blade)
-        triangles.extend(self._ring(inner_blade, outer, base_h, flip=False))
-        triangles.extend(self._triangulate_flat(inner_blade, base_h, flip=False))
-        # --- Strefa taper (ostrze → pełna ściana) ---
-        triangles.extend(self._build_taper_section(contour, base_h, taper_h, blade, wall_w))
-        # Góra taper: przejście inner_blade → inner_full (annular ring przy taper_top)
-        triangles.extend(self._ring(inner_full, inner_blade, taper_top, flip=False))
-        # --- Prosta strefa (stała grubość ściany) ---
-        if straight_top > taper_top:
-            triangles.extend(self.extrude_contour(outer,      straight_top - taper_top,  taper_top))
-            triangles.extend(self.extrude_contour(inner_full, -(straight_top - taper_top), taper_top, flip=True))
-        # --- Fillet (zaokrąglenie górnej krawędzi) ---
-        triangles.extend(self._build_fillet(contour, wall_z, fillet_r, wall_w))
-        # --- Górna czapka (inner_full na wysokości straight_top..wall_z) ---
-        triangles.extend(self._triangulate_flat(inner_full, straight_top, flip=True))
+
+        # [A] Spód z=0: cienki pierścień ostrza (annular face)
+        triangles.extend(self._ring(b_in, outer, 0.0, flip=True))
+
+        # [B+C] Strefa taper (z=0..taper_h): outer stały, inner b_in→f_in
+        triangles.extend(self._build_taper_section(outer, 0.0, taper_h, blade, wall_w))
+
+        # [D+E] Prosta strefa tnąca (z=taper_h..cookie_h)
+        if cookie_h > taper_h:
+            straight = cookie_h - taper_h
+            triangles.extend(self.extrude_contour(outer, straight, taper_h))
+            triangles.extend(self.extrude_contour(f_in,  straight, taper_h, flip=True))
+
+        # [G] Zamknięcie góry strefy tnącej (z=cookie_h): tylko cap f_in
+        # Uwaga: nie ma _ring tutaj — outer boundary już domknięty przez D+H,
+        # f_in boundary już domknięty przez E+G (3. trójkąt = non-manifold)
+        triangles.extend(self._triangulate_flat(f_in, cookie_h, flip=False))
+
+        # [H] Ścianki bazy (z=cookie_h..wall_z)
+        triangles.extend(self.extrude_contour(outer, base_h, cookie_h))
+
+        # [I] Wierzch bazy (z=wall_z)
+        triangles.extend(self._triangulate_flat(outer, wall_z, flip=False))
 
         self.write_binary_stl(triangles, output_path)
         return len(triangles)
@@ -573,23 +592,34 @@ class PurePythonSTLWriter:
         return triangles
 
     def _offset_contour(self, points: list, distance: float) -> list:
-        """Offset konturu o distance mm. Używa Shapely buffer() (poprawny dla kształtów wklęsłych).
+        """Offset konturu o distance mm. Używa Shapely buffer(), ZAWSZE resampluję
+        do tej samej liczby punktów co wejście — kluczowe dla watertight mesh.
         Fallback do skalowania centroidalnego gdy Shapely niedostępny."""
         if not points:
             return points
+        if abs(distance) < 1e-9:
+            return list(points)  # brak zmiany — te same wierzchołki
         try:
             from shapely.geometry import Polygon
             poly = Polygon(points)
-            buffered = poly.buffer(distance, join_style="round", resolution=32)
+            buffered = poly.buffer(distance, join_style="round", resolution=16)
             if buffered.is_empty:
-                return points
-            return list(buffered.exterior.coords[:-1])  # bez duplikatu ostatniego punktu
+                return list(points)
+            n = len(points)
+            ring = buffered.exterior
+            total = ring.length
+            if total < 1e-9:
+                return list(points)
+            # Resample do N punktów — offset 0.5 kroku unika duplikatu wrap-around
+            # (Shapely ring start == end, i=0 i i=n wylądowałoby w tym samym punkcie)
+            return [(ring.interpolate(total * (i + 0.5) / n).x,
+                     ring.interpolate(total * (i + 0.5) / n).y) for i in range(n)]
         except ImportError:
             cx = sum(p[0] for p in points) / len(points)
             cy = sum(p[1] for p in points) / len(points)
             r_avg = sum(math.hypot(p[0]-cx, p[1]-cy) for p in points) / len(points)
             if r_avg < 1e-9:
-                return points
+                return list(points)
             sc = (r_avg + distance) / r_avg
             return [(cx + (p[0]-cx)*sc, cy + (p[1]-cy)*sc) for p in points]
 
