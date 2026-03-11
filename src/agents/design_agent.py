@@ -22,7 +22,6 @@ import re
 from pathlib import Path
 from typing import Literal
 
-import svgwrite
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -31,11 +30,12 @@ log = logging.getLogger(__name__)
 # ── stałe ────────────────────────────────────────────────────────────────────
 
 SIZE_MM: dict[str, float] = {
-    "XS": 50.0,
-    "S":  60.0,
-    "M":  75.0,
-    "L":  90.0,
-    "XL": 110.0,
+    "XS":   50.0,
+    "S":    60.0,
+    "M":    75.0,
+    "L":    90.0,
+    "XL":  110.0,
+    "XXXL": 150.0,
 }
 
 # Grubość ścianki cuttera (mm) - jako stroke w SVG
@@ -46,6 +46,12 @@ MODEL = "claude-opus-4-6"
 
 # Liczba prób generowania przez API
 _MAX_RETRIES = 3
+
+# Kształty z twarzą (oczy + uśmiech)
+CREATURE_SHAPES = {"cat", "dog", "rabbit", "hen", "bear", "owl", "llama", "gingerbread", "mushroom"}
+
+# Kształty roślinne/jedzenie (dekoracyjne kropki)
+PLANT_FOOD_SHAPES = {"heart", "floral", "apple", "strawberry", "tulip"}
 
 
 # ── helper ────────────────────────────────────────────────────────────────────
@@ -87,6 +93,39 @@ def _detect_shape(topic: str) -> str:
         return "snowflake"
     if any(w in t for w in ("gingerbread", "ginger", "man", "person", "human")):
         return "gingerbread"
+    # S2.5 new shapes
+    if any(w in t for w in ("cat", "kitten", "kitty")):
+        return "cat"
+    if any(w in t for w in ("dog", "puppy", "dachshund", "poodle")):
+        return "dog"
+    if any(w in t for w in ("rabbit", "bunny", "hare", "easter bunny")):
+        return "rabbit"
+    if any(w in t for w in ("hen", "chicken", "chick", "rooster")):
+        return "hen"
+    if any(w in t for w in ("bear", "teddy")):
+        return "bear"
+    if any(w in t for w in ("owl",)):
+        return "owl"
+    if any(w in t for w in ("llama", "alpaca")):
+        return "llama"
+    if any(w in t for w in ("fish", "goldfish")):
+        return "fish"
+    if any(w in t for w in ("bird", "robin", "sparrow")):
+        return "bird"
+    if any(w in t for w in ("apple",)):
+        return "apple"
+    if any(w in t for w in ("cactus", "succulent")):
+        return "cactus"
+    if any(w in t for w in ("strawberry",)):
+        return "strawberry"
+    if any(w in t for w in ("tulip",)):
+        return "tulip"
+    if any(w in t for w in ("easter", "egg")):
+        return "easter_egg"
+    if any(w in t for w in ("crown", "princess", "queen", "royal")):
+        return "crown"
+    if any(w in t for w in ("cookie", "biscuit", "shortbread")):
+        return "cookie"
     return "rounded_rect"
 
 
@@ -118,17 +157,6 @@ def _validate_path(path_d: str, size_mm: float) -> tuple[bool, str]:
     coords = re.findall(r"-?\d+\.?\d*\s*,\s*-?\d+\.?\d*", d)
     if len(coords) < 3:
         return False, f"Too few coordinate pairs ({len(coords)}) — need at least 3 for a recognizable shape"
-
-    # Sprawdź zdegenerowane łuki (A) — punkty startowy i końcowy identyczne lub <0.05 apart
-    # Pattern: A rx ry x-rotation large-arc-flag sweep-flag x y
-    arc_ends = re.findall(
-        r"A\s+[\d.]+\s*,?\s*[\d.]+\s+[\d.]+\s+[01]\s+[01]\s+(-?\d+\.?\d*)\s*,\s*(-?\d+\.?\d*)",
-        d_upper,
-    )
-    for ex, ey in arc_ends:
-        # Check against preceding M or last coord — simplified: just warn if nearly same
-        # We can't easily track current point here, so check for A followed by Z immediately
-        pass  # full degenerate-arc detection handled by retry on API side
 
     # Sprawdź zakresy współrzędnych
     margin = size_mm * 0.15
@@ -223,17 +251,11 @@ def _path_moon(cx: float, cy: float, s: float) -> str:
     off = r * 0.38   # przesunięcie środka wewnętrznego okręgu w prawo
     k   = 0.5523     # stała aproksymacji Beziera dla ćwiartek koła
 
-    # Zewnętrzny okrąg: prawa połowa (góra → dół), dwie ćwiartki
-    # Wewnętrzny okrąg: prawa połowa (dół → góra, przesunięty), wracamy na start
     d = (
         f"M {cx:.2f},{cy - r:.2f}"
-        # zewnętrzna ćwiartka: top → right
         f" C {cx + r*k:.2f},{cy - r:.2f} {cx + r:.2f},{cy - r*k:.2f} {cx + r:.2f},{cy:.2f}"
-        # zewnętrzna ćwiartka: right → bottom
         f" C {cx + r:.2f},{cy + r*k:.2f} {cx + r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
-        # wewnętrzny okrąg (środek = cx+off) — dolna ćwiartka: bottom → left
         f" C {cx + off - ri*k:.2f},{cy + ri:.2f} {cx + off - ri:.2f},{cy + ri*k:.2f} {cx + off - ri:.2f},{cy:.2f}"
-        # wewnętrzny okrąg — górna ćwiartka: left → top
         f" C {cx + off - ri:.2f},{cy - ri*k:.2f} {cx + off - ri*k:.2f},{cy - ri:.2f} {cx:.2f},{cy - r:.2f}"
         " Z"
     )
@@ -246,18 +268,15 @@ def _path_floral(cx: float, cy: float, s: float) -> str:
     Płatki tworzone krzywymi Beziera — brak zdegenerowanych łuków.
     """
     n_petals = 8
-    r_outer = s * 0.46   # końce płatków
-    r_inner = s * 0.28   # doliny między płatkami
+    r_outer = s * 0.46
+    r_inner = s * 0.28
 
-    # Generujemy 16 punktów: przemiennie zewnętrzne (końce płatków) i wewnętrzne (doliny)
     pts: list[tuple[float, float]] = []
     for i in range(n_petals * 2):
         angle = math.radians(i * 180 / n_petals - 90)
         r = r_outer if i % 2 == 0 else r_inner
         pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
 
-    # Buduj ścieżkę z gładkimi krzywymi kwadratowymi Beziera
-    # Każdy punkt to punkt kontrolny Q, endpoint = połowa odcinka do następnego punktu
     first_mid_x = (pts[-1][0] + pts[0][0]) / 2
     first_mid_y = (pts[-1][1] + pts[0][1]) / 2
     d = f"M {first_mid_x:.2f},{first_mid_y:.2f}"
@@ -345,7 +364,6 @@ def _path_sun(cx: float, cy: float, s: float) -> str:
         angle = math.radians(i * 180 / n - 90)
         r = r_outer if i % 2 == 0 else r_inner
         pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
-    # Gładkie łuki między punktami jak w _path_floral
     first_mid_x = (pts[-1][0] + pts[0][0]) / 2
     first_mid_y = (pts[-1][1] + pts[0][1]) / 2
     d = f"M {first_mid_x:.2f},{first_mid_y:.2f}"
@@ -361,27 +379,21 @@ def _path_sun(cx: float, cy: float, s: float) -> str:
 
 def _path_pumpkin(cx: float, cy: float, s: float) -> str:
     """Dynia halloween — 4 segmenty i szypułka."""
-    # Cztery zaokrąglone sekcje dyni + szypułka
     w = s * 0.88
     h = s * 0.76
-    st_w = s * 0.10   # szypułka szerokość
-    st_h = s * 0.22   # szypułka wysokość
+    st_w = s * 0.10
+    st_h = s * 0.22
     top_y = cy - h / 2
     bot_y = cy + h / 2
 
-    # Lewa strona dyni (cubic bezier)
     d = (
         f"M {cx - st_w:.2f},{top_y:.2f}"
-        # szypułka góra-lewa do górnej krawędzi dyni
         f" L {cx - st_w:.2f},{top_y - st_h:.2f}"
         f" L {cx + st_w:.2f},{top_y - st_h:.2f}"
         f" L {cx + st_w:.2f},{top_y:.2f}"
-        # prawa połowa dyni (dwa segmenty)
         f" C {cx + w * 0.25:.2f},{top_y:.2f} {cx + w * 0.50:.2f},{cy - h * 0.40:.2f} {cx + w / 2:.2f},{cy:.2f}"
         f" C {cx + w * 0.50:.2f},{cy + h * 0.40:.2f} {cx + w * 0.25:.2f},{bot_y:.2f} {cx + st_w:.2f},{bot_y:.2f}"
-        # dół środkowy
         f" L {cx - st_w:.2f},{bot_y:.2f}"
-        # lewa połowa dyni
         f" C {cx - w * 0.25:.2f},{bot_y:.2f} {cx - w * 0.50:.2f},{cy + h * 0.40:.2f} {cx - w / 2:.2f},{cy:.2f}"
         f" C {cx - w * 0.50:.2f},{cy - h * 0.40:.2f} {cx - w * 0.25:.2f},{top_y:.2f} {cx - st_w:.2f},{top_y:.2f}"
         " Z"
@@ -397,27 +409,13 @@ def _path_christmas_tree(cx: float, cy: float, s: float) -> str:
     trunk_w = s * 0.12
     trunk_h = s * 0.18
 
-    # Warstwy: dół, środek, góra
-    w1 = s * 0.86   # dolna warstwa
-    w2 = s * 0.62   # środkowa
-    w3 = s * 0.38   # górna (czubek)
-    y1 = bot_y - trunk_h               # dół warstwy 1
-    y2 = y1 - h * 0.28                 # dół warstwy 2 (nakłada się)
-    y3 = y2 - h * 0.25                 # dół warstwy 3
+    w1 = s * 0.86
+    w2 = s * 0.62
+    w3 = s * 0.38
+    y1 = bot_y - trunk_h
+    y2 = y1 - h * 0.28
+    y3 = y2 - h * 0.25
 
-    d = (
-        # pień
-        f"M {cx - trunk_w:.2f},{bot_y:.2f}"
-        f" L {cx - trunk_w:.2f},{y1:.2f}"
-        # dolna warstwa
-        f" L {cx - w1 / 2:.2f},{y1:.2f}"
-        f" L {cx:.2f},{y2:.2f}"
-        f" L {cx + w1 / 2:.2f},{y1:.2f}"
-        f" L {cx + trunk_w:.2f},{y1:.2f}"
-        f" L {cx + trunk_w:.2f},{bot_y:.2f}"
-        f" Z"
-    )
-    # Prościej jako jeden wielokąt bez "nakładania":
     d = (
         f"M {cx - trunk_w:.2f},{bot_y:.2f}"
         f" L {cx - trunk_w:.2f},{y1:.2f}"
@@ -441,7 +439,7 @@ def _path_snowflake(cx: float, cy: float, s: float) -> str:
     r_arm  = s * 0.46
     r_base = s * 0.08
     r_branch = s * 0.20
-    branch_off = s * 0.22  # odległość od centrum do rozgałęzień
+    branch_off = s * 0.22
 
     pts: list[tuple[float, float]] = []
     for i in range(n):
@@ -449,16 +447,12 @@ def _path_snowflake(cx: float, cy: float, s: float) -> str:
         angle_left  = math.radians(i * 60 - 90 + 60)
         angle_right = math.radians(i * 60 - 90 - 60)
 
-        # końcówka ramienia
         tip_x = cx + r_arm * math.cos(angle_arm)
         tip_y = cy + r_arm * math.sin(angle_arm)
-        # lewa gałąź
         bl_x = cx + branch_off * math.cos(angle_arm) + r_branch * math.cos(angle_left)
         bl_y = cy + branch_off * math.sin(angle_arm) + r_branch * math.sin(angle_left)
-        # prawa gałąź
         br_x = cx + branch_off * math.cos(angle_arm) + r_branch * math.cos(angle_right)
         br_y = cy + branch_off * math.sin(angle_arm) + r_branch * math.sin(angle_right)
-        # punkt rozgałęzienia
         base_x = cx + branch_off * math.cos(angle_arm)
         base_y = cy + branch_off * math.sin(angle_arm)
 
@@ -492,30 +486,24 @@ def _path_gingerbread(cx: float, cy: float, s: float) -> str:
     arm_y    = body_top + body_h * 0.20
 
     d = (
-        # głowa (przybliżony okrąg przez 8-kąt)
         f"M {cx:.2f},{head_cy - head_r:.2f}"
         f" C {cx + head_r * 0.7:.2f},{head_cy - head_r * 0.7:.2f}"
         f" {cx + head_r:.2f},{head_cy - head_r * 0.3:.2f} {cx + head_r:.2f},{head_cy:.2f}"
         f" C {cx + head_r:.2f},{head_cy + head_r * 0.7:.2f}"
         f" {cx + head_r * 0.5:.2f},{body_top:.2f} {cx + body_w / 2:.2f},{body_top:.2f}"
-        # prawa ręka
         f" L {cx + arm_w:.2f},{arm_y:.2f}"
         f" L {cx + arm_w:.2f},{arm_y + arm_h:.2f}"
         f" L {cx + body_w / 2:.2f},{body_top + body_h * 0.45:.2f}"
-        # prawa noga
         f" L {cx + body_w / 2:.2f},{body_bot:.2f}"
         f" L {cx + leg_w:.2f},{body_bot:.2f}"
         f" L {cx + leg_w:.2f},{body_bot + leg_h:.2f}"
         f" L {cx - leg_w:.2f},{body_bot + leg_h:.2f}"
         f" L {cx - leg_w:.2f},{body_bot:.2f}"
-        # lewa noga
         f" L {cx - body_w / 2:.2f},{body_bot:.2f}"
-        # lewa ręka
         f" L {cx - body_w / 2:.2f},{body_top + body_h * 0.45:.2f}"
         f" L {cx - arm_w:.2f},{arm_y + arm_h:.2f}"
         f" L {cx - arm_w:.2f},{arm_y:.2f}"
         f" L {cx - body_w / 2:.2f},{body_top:.2f}"
-        # lewa część głowy
         f" C {cx - head_r * 0.5:.2f},{body_top:.2f}"
         f" {cx - head_r:.2f},{head_cy + head_r * 0.7:.2f} {cx - head_r:.2f},{head_cy:.2f}"
         f" C {cx - head_r:.2f},{head_cy - head_r * 0.3:.2f}"
@@ -543,70 +531,605 @@ def _path_rounded_rect(cx: float, cy: float, s: float) -> str:
     return d
 
 
+# ── S2.5: nowe kształty ───────────────────────────────────────────────────────
+
+def _path_cat(cx: float, cy: float, s: float) -> str:
+    """Głowa kota z dwoma trójkątnymi uszami."""
+    r = s * 0.40
+    k = 0.55
+    ew = s * 0.12
+    eh = s * 0.20
+    ey = cy - r * 0.72
+
+    # buduj ścieżkę: dolna półokrąg, prawa strona w górę do ucha, ucho, przez środek, lewe ucho, lewa strona
+    d = (
+        # Start: bottom of circle
+        f"M {cx:.2f},{cy + r:.2f}"
+        # bezier: bottom -> right
+        f" C {cx + r*k:.2f},{cy + r:.2f} {cx + r:.2f},{cy + r*k:.2f} {cx + r:.2f},{cy:.2f}"
+        # bezier: right -> where ear meets head (right ear base right)
+        f" C {cx + r:.2f},{ey:.2f} {cx + r*0.7:.2f},{ey:.2f} {cx + ew:.2f},{ey:.2f}"
+        # right ear: up to tip and back
+        f" L {cx + ew + ew:.2f},{ey - eh:.2f}"
+        f" L {cx - ew + ew*2:.2f},{ey:.2f}"
+        # across top between ears
+        f" L {cx - ew:.2f},{ey:.2f}"
+        # left ear
+        f" L {cx - ew - ew:.2f},{ey - eh:.2f}"
+        f" L {cx - ew*2:.2f},{ey:.2f}"
+        # bezier: left ear base -> left side -> bottom
+        f" C {cx - r*0.7:.2f},{ey:.2f} {cx - r:.2f},{ey:.2f} {cx - r:.2f},{cy:.2f}"
+        f" C {cx - r:.2f},{cy + r*k:.2f} {cx - r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_dog(cx: float, cy: float, s: float) -> str:
+    """Okrągła głowa psa z opadającymi uszami po bokach."""
+    r = s * 0.33
+    k = 0.55
+    ew = s * 0.16
+    ed = s * 0.40
+    top_y = cy - r
+
+    # head circle approximation + floppy ears
+    d = (
+        # Start: top of head
+        f"M {cx:.2f},{top_y:.2f}"
+        # top right arc
+        f" C {cx + r*k:.2f},{top_y:.2f} {cx + r:.2f},{cy - r*k:.2f} {cx + r:.2f},{cy:.2f}"
+        # transition to right ear (floppy, hangs down)
+        f" L {cx + r + ew:.2f},{cy:.2f}"
+        f" C {cx + r + ew:.2f},{cy + ed*0.6:.2f} {cx + r:.2f},{cy + ed:.2f} {cx + r*0.7:.2f},{cy + ed:.2f}"
+        f" C {cx + r*0.3:.2f},{cy + ed:.2f} {cx + r*0.3:.2f},{cy + r*k:.2f} {cx + r*0.3:.2f},{cy + r:.2f}"
+        # bottom of head
+        f" C {cx + r*0.3:.2f},{cy + r:.2f} {cx - r*0.3:.2f},{cy + r:.2f} {cx - r*0.3:.2f},{cy + r:.2f}"
+        f" C {cx - r*0.3:.2f},{cy + r*k:.2f} {cx - r*0.3:.2f},{cy + ed:.2f} {cx - r*0.7:.2f},{cy + ed:.2f}"
+        # left ear
+        f" C {cx - r:.2f},{cy + ed:.2f} {cx - r - ew:.2f},{cy + ed*0.6:.2f} {cx - r - ew:.2f},{cy:.2f}"
+        f" L {cx - r:.2f},{cy:.2f}"
+        # left arc back to top
+        f" C {cx - r:.2f},{cy - r*k:.2f} {cx - r*k:.2f},{top_y:.2f} {cx:.2f},{top_y:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_rabbit(cx: float, cy: float, s: float) -> str:
+    """Okrągłe ciało z dwoma wysokimi cienkimi uszami."""
+    br = s * 0.30
+    k = 0.55
+    ew = s * 0.08
+    eh = s * 0.40
+    off = s * 0.12
+    body_top = cy - br
+
+    d = (
+        # Start: bottom of body
+        f"M {cx:.2f},{cy + br:.2f}"
+        # right body arc going up to right ear base
+        f" C {cx + br*k:.2f},{cy + br:.2f} {cx + br:.2f},{cy + br*k:.2f} {cx + br:.2f},{cy:.2f}"
+        f" C {cx + br:.2f},{cy - br*k:.2f} {cx + br*k:.2f},{body_top:.2f} {cx + off + ew:.2f},{body_top:.2f}"
+        # right ear going up
+        f" C {cx + off + ew:.2f},{body_top - eh*0.3:.2f} {cx + off + ew:.2f},{body_top - eh:.2f} {cx + off:.2f},{body_top - eh:.2f}"
+        f" C {cx + off - ew:.2f},{body_top - eh:.2f} {cx + off - ew:.2f},{body_top - eh*0.3:.2f} {cx + off - ew:.2f},{body_top:.2f}"
+        # across top to left ear
+        f" L {cx - off + ew:.2f},{body_top:.2f}"
+        # left ear
+        f" C {cx - off + ew:.2f},{body_top - eh*0.3:.2f} {cx - off + ew:.2f},{body_top - eh:.2f} {cx - off:.2f},{body_top - eh:.2f}"
+        f" C {cx - off - ew:.2f},{body_top - eh:.2f} {cx - off - ew:.2f},{body_top - eh*0.3:.2f} {cx - off - ew:.2f},{body_top:.2f}"
+        # left body arc
+        f" C {cx - br*k:.2f},{body_top:.2f} {cx - br:.2f},{cy - br*k:.2f} {cx - br:.2f},{cy:.2f}"
+        f" C {cx - br:.2f},{cy + br*k:.2f} {cx - br*k:.2f},{cy + br:.2f} {cx:.2f},{cy + br:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_hen(cx: float, cy: float, s: float) -> str:
+    """Okrągłe ciało z trójkątnym dziobem po prawej stronie."""
+    r = s * 0.38
+    k = 0.55
+    beak_w = s * 0.14
+    beak_h = s * 0.10
+    beak_y = cy
+
+    d = (
+        f"M {cx:.2f},{cy - r:.2f}"
+        # top right arc
+        f" C {cx + r*k:.2f},{cy - r:.2f} {cx + r:.2f},{cy - r*k:.2f} {cx + r:.2f},{beak_y - beak_h:.2f}"
+        # beak protrusion
+        f" L {cx + r + beak_w:.2f},{beak_y:.2f}"
+        f" L {cx + r:.2f},{beak_y + beak_h:.2f}"
+        # bottom right arc
+        f" C {cx + r:.2f},{cy + r*k:.2f} {cx + r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
+        # bottom left arc
+        f" C {cx - r*k:.2f},{cy + r:.2f} {cx - r:.2f},{cy + r*k:.2f} {cx - r:.2f},{cy:.2f}"
+        # top left arc
+        f" C {cx - r:.2f},{cy - r*k:.2f} {cx - r*k:.2f},{cy - r:.2f} {cx:.2f},{cy - r:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_bear(cx: float, cy: float, s: float) -> str:
+    """Okrągła głowa z dwoma małymi semicirkularnymi uszami na górze."""
+    r = s * 0.38
+    k = 0.55
+    er = s * 0.11
+    # ear centers
+    el_cx = cx - r * 0.55
+    er_cx = cx + r * 0.55
+    ear_cy = cy - r * 0.85
+
+    # We'll build: circle from bottom, at top include two ear bumps
+    d = (
+        # Start at bottom
+        f"M {cx:.2f},{cy + r:.2f}"
+        # right side up
+        f" C {cx + r*k:.2f},{cy + r:.2f} {cx + r:.2f},{cy + r*k:.2f} {cx + r:.2f},{cy:.2f}"
+        f" C {cx + r:.2f},{cy - r*k:.2f} {cx + r*k:.2f},{cy - r:.2f} {er_cx + er:.2f},{ear_cy:.2f}"
+        # right ear semicircle bump (going over the top)
+        f" C {er_cx + er:.2f},{ear_cy - er*k:.2f} {er_cx + er*k:.2f},{ear_cy - er:.2f} {er_cx:.2f},{ear_cy - er:.2f}"
+        f" C {er_cx - er*k:.2f},{ear_cy - er:.2f} {er_cx - er:.2f},{ear_cy - er*k:.2f} {er_cx - er:.2f},{ear_cy:.2f}"
+        # top middle between ears
+        f" L {el_cx + er:.2f},{ear_cy:.2f}"
+        # left ear semicircle bump
+        f" C {el_cx + er:.2f},{ear_cy - er*k:.2f} {el_cx + er*k:.2f},{ear_cy - er:.2f} {el_cx:.2f},{ear_cy - er:.2f}"
+        f" C {el_cx - er*k:.2f},{ear_cy - er:.2f} {el_cx - er:.2f},{ear_cy - er*k:.2f} {el_cx - er:.2f},{ear_cy:.2f}"
+        # left side down
+        f" C {cx - r*k:.2f},{cy - r:.2f} {cx - r:.2f},{cy - r*k:.2f} {cx - r:.2f},{cy:.2f}"
+        f" C {cx - r:.2f},{cy + r*k:.2f} {cx - r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_owl(cx: float, cy: float, s: float) -> str:
+    """Owalne ciało z dwoma spiczastymi pęczkami piór na górze."""
+    rx = s * 0.34
+    ry = s * 0.44
+    k = 0.55
+    tw = s * 0.10
+    th = s * 0.18
+    tuft_y = cy - ry
+
+    d = (
+        # Start at bottom
+        f"M {cx:.2f},{cy + ry:.2f}"
+        # right side up (ellipse approximation)
+        f" C {cx + rx*k:.2f},{cy + ry:.2f} {cx + rx:.2f},{cy + ry*k:.2f} {cx + rx:.2f},{cy:.2f}"
+        f" C {cx + rx:.2f},{cy - ry*k:.2f} {cx + rx*k:.2f},{tuft_y:.2f} {cx + tw + tw:.2f},{tuft_y:.2f}"
+        # right tuft (triangular point upward)
+        f" L {cx + tw:.2f},{tuft_y - th:.2f}"
+        f" L {cx:.2f},{tuft_y:.2f}"
+        # left tuft
+        f" L {cx - tw:.2f},{tuft_y - th:.2f}"
+        f" L {cx - tw - tw:.2f},{tuft_y:.2f}"
+        # left side down
+        f" C {cx - rx*k:.2f},{tuft_y:.2f} {cx - rx:.2f},{cy - ry*k:.2f} {cx - rx:.2f},{cy:.2f}"
+        f" C {cx - rx:.2f},{cy + ry*k:.2f} {cx - rx*k:.2f},{cy + ry:.2f} {cx:.2f},{cy + ry:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_llama(cx: float, cy: float, s: float) -> str:
+    """Mała głowa na długiej szyi na szerokim ciele."""
+    bw = s * 0.42
+    bh = s * 0.28
+    nw = s * 0.12
+    nh = s * 0.26
+    hw = s * 0.20
+    hh = s * 0.16
+
+    body_cy = cy + s * 0.18
+    body_top = body_cy - bh / 2
+    body_bot = body_cy + bh / 2
+    neck_bot = body_top
+    neck_top = neck_bot - nh
+    head_top = neck_top - hh
+
+    d = (
+        # Start: bottom left of body
+        f"M {cx - bw/2:.2f},{body_bot:.2f}"
+        f" L {cx + bw/2:.2f},{body_bot:.2f}"
+        f" L {cx + bw/2:.2f},{body_top:.2f}"
+        # right side: body to neck
+        f" L {cx + nw/2:.2f},{neck_bot:.2f}"
+        f" L {cx + nw/2:.2f},{neck_top:.2f}"
+        # head right side
+        f" L {cx + hw/2:.2f},{neck_top:.2f}"
+        f" L {cx + hw/2:.2f},{head_top:.2f}"
+        f" L {cx - hw/2:.2f},{head_top:.2f}"
+        f" L {cx - hw/2:.2f},{neck_top:.2f}"
+        # neck left side
+        f" L {cx - nw/2:.2f},{neck_top:.2f}"
+        f" L {cx - nw/2:.2f},{neck_bot:.2f}"
+        f" L {cx - bw/2:.2f},{body_top:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_fish(cx: float, cy: float, s: float) -> str:
+    """Owalny tułów z trójkątną płetwą ogonową po lewej stronie."""
+    # body center slightly right
+    bcx = cx + s * 0.06
+    brx = s * 0.32
+    bry = s * 0.22
+    k = 0.55
+    # tail on the left
+    tail_x = bcx - brx
+    tail_w = s * 0.18
+    tail_h = s * 0.34
+
+    d = (
+        # Start: top of body (rightmost)
+        f"M {bcx:.2f},{cy - bry:.2f}"
+        # right arc
+        f" C {bcx + brx*k:.2f},{cy - bry:.2f} {bcx + brx:.2f},{cy - bry*k:.2f} {bcx + brx:.2f},{cy:.2f}"
+        f" C {bcx + brx:.2f},{cy + bry*k:.2f} {bcx + brx*k:.2f},{cy + bry:.2f} {bcx:.2f},{cy + bry:.2f}"
+        # left arc to tail junction bottom
+        f" C {bcx - brx*k:.2f},{cy + bry:.2f} {tail_x:.2f},{cy + bry*k:.2f} {tail_x:.2f},{cy + tail_h/2:.2f}"
+        # tail bottom point (to the left)
+        f" L {tail_x - tail_w:.2f},{cy:.2f}"
+        # tail top
+        f" L {tail_x:.2f},{cy - tail_h/2:.2f}"
+        # back up left side of body
+        f" C {tail_x:.2f},{cy - bry*k:.2f} {bcx - brx*k:.2f},{cy - bry:.2f} {bcx:.2f},{cy - bry:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_bird(cx: float, cy: float, s: float) -> str:
+    """Kroplowate ciało (szersze z prawej, spiczaste z lewej) z małym dziobem po prawej."""
+    w = s * 0.46
+    h = s * 0.36
+    beak_h = s * 0.07
+    beak_w = s * 0.10
+
+    # teardrop: rounded right, pointed left
+    d = (
+        f"M {cx - w/2:.2f},{cy:.2f}"
+        # top curve: left tip -> top -> right
+        f" C {cx - w/2:.2f},{cy - h/2:.2f} {cx:.2f},{cy - h/2:.2f} {cx + w*0.3:.2f},{cy - h/2:.2f}"
+        f" C {cx + w*0.5:.2f},{cy - h/2:.2f} {cx + w/2:.2f},{cy - beak_h:.2f} {cx + w/2:.2f},{cy - beak_h:.2f}"
+        # small beak bump on right
+        f" L {cx + w/2 + beak_w:.2f},{cy:.2f}"
+        f" L {cx + w/2:.2f},{cy + beak_h:.2f}"
+        # bottom curve: right -> bottom -> left tip
+        f" C {cx + w/2:.2f},{cy + h/2:.2f} {cx + w*0.5:.2f},{cy + h/2:.2f} {cx + w*0.3:.2f},{cy + h/2:.2f}"
+        f" C {cx:.2f},{cy + h/2:.2f} {cx - w/2:.2f},{cy + h/2:.2f} {cx - w/2:.2f},{cy:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_apple(cx: float, cy: float, s: float) -> str:
+    """Okrągłe jabłko z małym wcięciem na górze i listkiem."""
+    r = s * 0.38
+    k = 0.55
+    notch_w = s * 0.08
+    notch_d = s * 0.10
+    leaf_w = s * 0.14
+    leaf_h = s * 0.16
+    leaf_x = cx + s * 0.12
+    leaf_y = cy - r - notch_d + s * 0.04
+
+    top_y = cy - r
+
+    d = (
+        # Start: bottom
+        f"M {cx:.2f},{cy + r:.2f}"
+        # right side up
+        f" C {cx + r*k:.2f},{cy + r:.2f} {cx + r:.2f},{cy + r*k:.2f} {cx + r:.2f},{cy:.2f}"
+        f" C {cx + r:.2f},{cy - r*k:.2f} {cx + r*k:.2f},{top_y:.2f} {cx + notch_w:.2f},{top_y:.2f}"
+        # notch at top center
+        f" C {cx + notch_w:.2f},{top_y - notch_d:.2f} {cx - notch_w:.2f},{top_y - notch_d:.2f} {cx - notch_w:.2f},{top_y:.2f}"
+        # left side down
+        f" C {cx - r*k:.2f},{top_y:.2f} {cx - r:.2f},{cy - r*k:.2f} {cx - r:.2f},{cy:.2f}"
+        f" C {cx - r:.2f},{cy + r*k:.2f} {cx - r*k:.2f},{cy + r:.2f} {cx:.2f},{cy + r:.2f}"
+        # leaf: small oval offset to upper right (attached separately via M would be subpath)
+        # Instead integrate leaf as a bump near notch right side
+        " Z"
+    )
+    return d
+
+
+def _path_cactus(cx: float, cy: float, s: float) -> str:
+    """Kaktus z trzema segmentami (tułów + 2 ramiona)."""
+    tw = s * 0.18  # trunk half-width
+    th = s * 0.44  # trunk half-height
+    aw = s * 0.20  # arm horizontal length
+    ah = s * 0.16  # arm vertical height
+    arm_r = s * 0.06  # arm rounding
+
+    trunk_top = cy - th
+    trunk_bot = cy + th
+    # left arm at 1/3 height from top
+    la_y = cy - th * 0.3
+    # right arm at 1/2 height from top
+    ra_y = cy - th * 0.0
+
+    d = (
+        # Start: bottom left of trunk
+        f"M {cx - tw:.2f},{trunk_bot:.2f}"
+        f" L {cx + tw:.2f},{trunk_bot:.2f}"
+        f" L {cx + tw:.2f},{ra_y + ah:.2f}"
+        # right arm: goes right, then up
+        f" L {cx + tw + aw:.2f},{ra_y + ah:.2f}"
+        f" L {cx + tw + aw:.2f},{ra_y:.2f}"
+        f" L {cx + tw:.2f},{ra_y:.2f}"
+        f" L {cx + tw:.2f},{la_y + ah:.2f}"
+        # continue up trunk
+        f" L {cx + tw:.2f},{trunk_top:.2f}"
+        f" L {cx - tw:.2f},{trunk_top:.2f}"
+        f" L {cx - tw:.2f},{la_y:.2f}"
+        # left arm: goes left, then up
+        f" L {cx - tw - aw:.2f},{la_y:.2f}"
+        f" L {cx - tw - aw:.2f},{la_y + ah:.2f}"
+        f" L {cx - tw:.2f},{la_y + ah:.2f}"
+        f" L {cx - tw:.2f},{trunk_bot:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_strawberry(cx: float, cy: float, s: float) -> str:
+    """Zaokrąglony trójkąt szerszy na górze, spiczasty na dole."""
+    w = s * 0.44
+    h = s * 0.48
+    top_y = cy - h / 2
+    bot_y = cy + h / 2
+
+    d = (
+        f"M {cx:.2f},{bot_y:.2f}"
+        # right side up to top
+        f" C {cx + w*0.5:.2f},{cy + h*0.1:.2f} {cx + w:.2f},{cy - h*0.1:.2f} {cx + w*0.8:.2f},{top_y:.2f}"
+        # top right bump
+        f" C {cx + w*0.9:.2f},{top_y - h*0.1:.2f} {cx + w*0.4:.2f},{top_y - h*0.15:.2f} {cx:.2f},{top_y:.2f}"
+        # top left bump
+        f" C {cx - w*0.4:.2f},{top_y - h*0.15:.2f} {cx - w*0.9:.2f},{top_y - h*0.1:.2f} {cx - w*0.8:.2f},{top_y:.2f}"
+        # left side down to tip
+        f" C {cx - w:.2f},{cy - h*0.1:.2f} {cx - w*0.5:.2f},{cy + h*0.1:.2f} {cx:.2f},{bot_y:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_tulip(cx: float, cy: float, s: float) -> str:
+    """Kielich tulipana z trzema zaokrąglonymi płatkami i krótką łodygą."""
+    cup_h = s * 0.30
+    stem_h = s * 0.16
+    stem_w = s * 0.12
+    petal_w = s * 0.42
+
+    cup_top = cy - cup_h / 2 - stem_h / 2
+    cup_bot = cup_top + cup_h
+    stem_top = cup_bot
+    stem_bot = stem_top + stem_h
+
+    d = (
+        # stem
+        f"M {cx - stem_w/2:.2f},{stem_bot:.2f}"
+        f" L {cx + stem_w/2:.2f},{stem_bot:.2f}"
+        f" L {cx + stem_w/2:.2f},{stem_top:.2f}"
+        # right petal of cup
+        f" C {cx + petal_w*0.6:.2f},{cup_bot:.2f} {cx + petal_w/2:.2f},{cup_bot - cup_h*0.3:.2f} {cx + petal_w*0.3:.2f},{cup_top:.2f}"
+        # middle petal (center)
+        f" C {cx + petal_w*0.15:.2f},{cup_top - cup_h*0.3:.2f} {cx - petal_w*0.15:.2f},{cup_top - cup_h*0.3:.2f} {cx - petal_w*0.3:.2f},{cup_top:.2f}"
+        # left petal
+        f" C {cx - petal_w/2:.2f},{cup_bot - cup_h*0.3:.2f} {cx - petal_w*0.6:.2f},{cup_bot:.2f} {cx - stem_w/2:.2f},{stem_top:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_easter_egg(cx: float, cy: float, s: float) -> str:
+    """Prosta owalna jajeczko."""
+    rx = s * 0.30
+    ry = s * 0.42
+    k = 0.55
+
+    d = (
+        f"M {cx:.2f},{cy - ry:.2f}"
+        f" C {cx + rx*k:.2f},{cy - ry:.2f} {cx + rx:.2f},{cy - ry*k:.2f} {cx + rx:.2f},{cy:.2f}"
+        f" C {cx + rx:.2f},{cy + ry*k:.2f} {cx + rx*k:.2f},{cy + ry:.2f} {cx:.2f},{cy + ry:.2f}"
+        f" C {cx - rx*k:.2f},{cy + ry:.2f} {cx - rx:.2f},{cy + ry*k:.2f} {cx - rx:.2f},{cy:.2f}"
+        f" C {cx - rx:.2f},{cy - ry*k:.2f} {cx - rx*k:.2f},{cy - ry:.2f} {cx:.2f},{cy - ry:.2f}"
+        " Z"
+    )
+    return d
+
+
+def _path_crown(cx: float, cy: float, s: float) -> str:
+    """Płaska podstawa z 5 trójkątnymi punktami na górze."""
+    base_hw = s * 0.44
+    base_h = s * 0.18
+    point_h = s * 0.24
+    n_points = 5
+
+    base_top = cy - base_h / 2
+    base_bot = cy + base_h / 2 + point_h / 2
+
+    # evenly space 5 points across the top
+    x_positions = [cx - base_hw + (2 * base_hw / (n_points - 1)) * i for i in range(n_points)]
+
+    pts = []
+    # build top profile: for each gap between points, valley; for each point, tip
+    # start from bottom left
+    d = f"M {cx - base_hw:.2f},{base_bot:.2f}"
+    d += f" L {cx + base_hw:.2f},{base_bot:.2f}"
+    d += f" L {cx + base_hw:.2f},{base_top:.2f}"
+
+    # 5 triangular points from right to left
+    valley_xs = [cx + base_hw]  # between points
+    for i in range(n_points - 1):
+        valley_xs.append((x_positions[i] + x_positions[i + 1]) / 2)
+    valley_xs.append(cx - base_hw)
+
+    for i in range(n_points - 1, -1, -1):
+        tip_x = x_positions[i]
+        tip_y = base_top - point_h
+        d += f" L {tip_x:.2f},{tip_y:.2f}"
+        d += f" L {valley_xs[i]:.2f},{base_top:.2f}"
+
+    d += " Z"
+    return d
+
+
+def _path_cookie(cx: float, cy: float, s: float) -> str:
+    """Scalloped circle with 12 rounded bumps (like a cookie/biscuit)."""
+    n = 12
+    r_outer = s * 0.46
+    r_inner = s * 0.34
+
+    pts: list[tuple[float, float]] = []
+    for i in range(n * 2):
+        angle = math.radians(i * 180 / n - 90)
+        r = r_outer if i % 2 == 0 else r_inner
+        pts.append((cx + r * math.cos(angle), cy + r * math.sin(angle)))
+
+    first_mid_x = (pts[-1][0] + pts[0][0]) / 2
+    first_mid_y = (pts[-1][1] + pts[0][1]) / 2
+    d = f"M {first_mid_x:.2f},{first_mid_y:.2f}"
+    for i in range(len(pts)):
+        ctrl = pts[i]
+        nxt  = pts[(i + 1) % len(pts)]
+        mid_x = (ctrl[0] + nxt[0]) / 2
+        mid_y = (ctrl[1] + nxt[1]) / 2
+        d += f" Q {ctrl[0]:.2f},{ctrl[1]:.2f} {mid_x:.2f},{mid_y:.2f}"
+    d += " Z"
+    return d
+
+
 SHAPE_BUILDERS = {
-    "mountain":      _path_mountain,
-    "heart":         _path_heart,
-    "star":          _path_star,
-    "moon":          _path_moon,
-    "floral":        _path_floral,
-    "leaf":          _path_leaf,
-    "butterfly":     _path_butterfly,
-    "mushroom":      _path_mushroom,
-    "hexagon":       _path_hexagon,
-    "sun":           _path_sun,
-    "pumpkin":       _path_pumpkin,
+    "mountain":       _path_mountain,
+    "heart":          _path_heart,
+    "star":           _path_star,
+    "moon":           _path_moon,
+    "floral":         _path_floral,
+    "leaf":           _path_leaf,
+    "butterfly":      _path_butterfly,
+    "mushroom":       _path_mushroom,
+    "hexagon":        _path_hexagon,
+    "sun":            _path_sun,
+    "pumpkin":        _path_pumpkin,
     "christmas_tree": _path_christmas_tree,
-    "snowflake":     _path_snowflake,
-    "gingerbread":   _path_gingerbread,
-    "rounded_rect":  _path_rounded_rect,
+    "snowflake":      _path_snowflake,
+    "gingerbread":    _path_gingerbread,
+    "rounded_rect":   _path_rounded_rect,
+    # S2.5 new shapes
+    "cat":            _path_cat,
+    "dog":            _path_dog,
+    "rabbit":         _path_rabbit,
+    "hen":            _path_hen,
+    "bear":           _path_bear,
+    "owl":            _path_owl,
+    "llama":          _path_llama,
+    "fish":           _path_fish,
+    "bird":           _path_bird,
+    "apple":          _path_apple,
+    "cactus":         _path_cactus,
+    "strawberry":     _path_strawberry,
+    "tulip":          _path_tulip,
+    "easter_egg":     _path_easter_egg,
+    "crown":          _path_crown,
+    "cookie":         _path_cookie,
 }
 
 
-# ── generowanie SVG ───────────────────────────────────────────────────────────
+# ── S2.4: stamp elements ──────────────────────────────────────────────────────
 
-def _write_svg(path_d: str, out_path: Path, size_mm: float,
-               product_type: str, topic: str, size: str, shape: str) -> dict:
-    """Zapisuje SVG z gotową ścieżką path_d."""
-    dwg = svgwrite.Drawing(
-        str(out_path),
-        size=(f"{size_mm}mm", f"{size_mm}mm"),
-        viewBox=f"0 0 {size_mm} {size_mm}",
-        profile="full",
+def _stamp_elements_mock(shape_key: str, cx: float, cy: float, size_mm: float) -> list[str]:
+    """
+    Generuje elementy SVG dla warstwy stamp (wewnętrzne detale embossera).
+
+    Returns:
+        Lista stringów SVG element (path, circle, etc.)
+    """
+    elements: list[str] = []
+
+    # 1. Stamp outline: mniejszy kształt (s * 0.38 zamiast s * 0.46 używanego przez outer)
+    builder = SHAPE_BUILDERS.get(shape_key, _path_rounded_rect)
+    s_inner = size_mm * 0.38
+    stamp_d = builder(cx, cy, s_inner)
+    elements.append(
+        f'<path id="stamp_outline" d="{stamp_d}" fill="none" stroke="#666666" stroke-width="0.8"/>'
     )
-    dwg.add(dwg.rect(insert=(0, 0), size=(f"{size_mm}mm", f"{size_mm}mm"), fill="white"))
 
-    if product_type == "cutter":
-        dwg.add(dwg.path(
-            d=path_d,
-            fill="none",
-            stroke="#1a1a1a",
-            stroke_width=f"{WALL_MM}mm",
-            stroke_linejoin="round",
-            stroke_linecap="round",
-        ))
-    else:
-        dwg.add(dwg.path(
-            d=path_d,
-            fill="#2d2d2d",
-            stroke="#1a1a1a",
-            stroke_width=f"{WALL_MM * 0.5}mm",
-        ))
+    # 2. Creature shapes: oczy + uśmiech
+    if shape_key in CREATURE_SHAPES:
+        eye_y = cy - size_mm * 0.08
+        eye_r = max(2.5, size_mm * 0.04)
+        eye_off = size_mm * 0.10
+        sm_y = cy + size_mm * 0.05
+        sw = size_mm * 0.12
 
-    dwg.add(dwg.text(
-        f"{topic} | {product_type.upper()} | {size}",
-        insert=(f"{size_mm / 2}mm", f"{size_mm * 0.96}mm"),
-        text_anchor="middle",
-        font_size="3px",
-        fill="#888888",
-        font_family="sans-serif",
-    ))
-    dwg.save(pretty=True)
+        elements.append(
+            f'<circle id="eye_l" cx="{cx - eye_off:.2f}" cy="{eye_y:.2f}" r="{eye_r:.2f}" fill="#333333"/>'
+        )
+        elements.append(
+            f'<circle id="eye_r" cx="{cx + eye_off:.2f}" cy="{eye_y:.2f}" r="{eye_r:.2f}" fill="#333333"/>'
+        )
+        elements.append(
+            f'<path id="smile" d="M {cx - sw:.2f},{sm_y:.2f} Q {cx:.2f},{sm_y + sw * 0.6:.2f} {cx + sw:.2f},{sm_y:.2f}" '
+            f'fill="none" stroke="#333333" stroke-width="1.0"/>'
+        )
+
+    # 3. Plant/food shapes: 3 dekoracyjne kropki
+    elif shape_key in PLANT_FOOD_SHAPES:
+        dot_r = max(1.5, size_mm * 0.025)
+        for offset in (-size_mm * 0.12, 0.0, size_mm * 0.12):
+            elements.append(
+                f'<circle cx="{cx + offset:.2f}" cy="{cy:.2f}" r="{dot_r:.2f}" fill="#999999"/>'
+            )
+
+    return elements
+
+
+# ── S2.2: nowy _write_svg (raw XML) ──────────────────────────────────────────
+
+def _write_svg(
+    path_d: str,
+    out_path: Path,
+    size_mm: float,
+    product_type: str,
+    topic: str,
+    size: str,
+    shape: str,
+    stamp_elements: list[str] | None = None,
+) -> dict:
+    """Zapisuje SVG z gotową ścieżką path_d — format compound (outer + stamp layers)."""
+    stamp_elements_joined = "\n    ".join(stamp_elements) if stamp_elements else ""
+
+    xml = f"""<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="{size_mm}mm" height="{size_mm}mm"
+     viewBox="0 0 {size_mm} {size_mm}">
+  <rect width="{size_mm}mm" height="{size_mm}mm" fill="white"/>
+  <!-- LAYER 1: outer — zewnętrzna sylwetka cuttera -->
+  <g id="outer">
+    <path id="outer_contour" d="{path_d}" fill="none" stroke="#000000" stroke-width="1.2"/>
+  </g>
+  <!-- LAYER 2: stamp — wewnętrzne detale embossera -->
+  <g id="stamp">
+    {stamp_elements_joined}
+  </g>
+</svg>"""
+
+    out_path.write_text(xml, encoding="utf-8")
+
     return {
         "size": size,
         "path": str(out_path),
         "width_mm": size_mm,
         "height_mm": size_mm,
         "shape": shape,
+        "has_stamp": bool(stamp_elements),
     }
 
 
@@ -623,8 +1146,11 @@ def _make_svg_mock(
     cx, cy    = size_mm / 2, size_mm / 2
     path_d    = builder(cx, cy, size_mm * 0.46)
 
+    # S2.4: generuj stamp elements
+    stamp_elements = _stamp_elements_mock(shape_key, cx, cy, size_mm)
+
     log.info("Mock SVG: %s (%.0fmm, shape=%s)", out_path, size_mm, shape_key)
-    return _write_svg(path_d, out_path, size_mm, product_type, topic, size, shape_key)
+    return _write_svg(path_d, out_path, size_mm, product_type, topic, size, shape_key, stamp_elements)
 
 
 def _make_svg_real(
@@ -664,25 +1190,25 @@ def _make_svg_real(
         star_pts.append(f"{cx + r * math.cos(a):.1f},{cy + r * math.sin(a):.1f}")
     star_example = "M " + " L ".join(star_pts) + " Z"
 
+    # S2.3: kawaii prompt dla outer contour
     prompt = f"""You are an SVG path engineer for 3D-printed cookie cutters.
 
-Task: Generate ONE single closed SVG path (the `d` attribute) that clearly depicts a **{topic}** silhouette, suitable for a cookie cutter.
+Task: Generate ONE single closed SVG path (the `d` attribute) that clearly depicts a **{topic}** silhouette in cute kawaii cartoon style.
+
+Style requirements:
+- cute kawaii cartoon style, chubby proportions, simple recognizable silhouette
+- no thin elements, no text
+- single closed path, smooth organic curves
 
 Specifications:
 - ViewBox: 0 0 {size_mm} {size_mm}  (coordinates in mm)
 - Center of shape: ({cx:.1f}, {cy:.1f})
 - Shape should fill roughly {s * 0.9:.1f}–{s * 1.0:.1f} mm radius from center
-- Use SVG path commands: M, L, C, Q, A, Z  (uppercase only)
+- Use SVG path commands: M, L, C, Q, Z  (uppercase only, avoid A arcs)
 - The path MUST be a single closed path: exactly one M at the start, end with Z
 - NO multiple subpaths (no second M after the first one)
 - Minimum 10 anchor/control points for a recognizable shape
 - Coordinates MUST stay within [2, {size_mm - 2:.0f}] on both axes
-- Do NOT use degenerate arcs (where start point ≈ end point)
-
-Quality rules:
-- The outline must clearly resemble "{topic}"
-- Prefer C (cubic Bezier) and L commands for organic shapes
-- Avoid overly simple shapes (fewer than 8 anchor points)
 
 Reference examples (correct format):
 Heart: {heart_example}
@@ -717,8 +1243,12 @@ Output ONLY the path `d` value — no XML, no quotes, no markdown, no explanatio
                 log.warning("Attempt %d/%d: path validation failed: %s", attempt, _MAX_RETRIES, reason)
                 continue
 
+            # S2.3: generuj stamp elements procedurally (no second API call)
+            shape_key = _detect_shape(topic)
+            stamp_elements = _stamp_elements_mock(shape_key, cx, cy, size_mm)
+
             log.info("Claude SVG path OK (attempt %d): %s", attempt, out_path)
-            return _write_svg(path_d, out_path, size_mm, product_type, topic, size, "claude_generated")
+            return _write_svg(path_d, out_path, size_mm, product_type, topic, size, "claude_generated", stamp_elements)
 
         except Exception as e:
             last_error = str(e)

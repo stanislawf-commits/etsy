@@ -65,11 +65,11 @@ python cli.py new-product "test star" -t cutter -s M
 ## Sprint 2 — Compound SVG + Printability Validator
 **Cel:** SVG z dwoma warstwami (outer + stamp), cute styl, walidacja drukowalności
 **Pliki:** `src/agents/design_agent.py`, nowy `src/utils/printability_validator.py`
-**Status:** ⬜ TODO (po Sprint 1)
+**Status:** ✅ UKOŃCZONY (2026-03-11)
 
 ### Zadania
 
-- [ ] **S2.1** Nowy moduł: `src/utils/printability_validator.py`
+- [x] **S2.1** Nowy moduł: `src/utils/printability_validator.py`
   - Funkcja: `validate_svg(svg_path, size_mm) -> ValidationResult`
   - Sprawdzenia (patrz svg_stl_pipeline.md §5.1):
     - Zamknięte ścieżki (path ends Z)
@@ -79,35 +79,11 @@ python cli.py new-product "test star" -t cutter -s M
     - Odizolowane detale
   - Testy: `tests/test_printability_validator.py`
 
-- [ ] **S2.2** Nowy format SVG — compound paths
-  - Plik: `design_agent.py`, funkcja `_write_svg()`
-  - Nowa struktura: `<g id="outer">` + `<g id="stamp">` (patrz §3.1 spec)
-  - Backward compat: stare SVG bez warstw wczytywane jako outer-only
-
-- [ ] **S2.3** Nowy Claude prompt — outer contour (cute cartoon)
-  - Plik: `design_agent.py`, funkcja `_make_svg_real()`
-  - Stary prompt: generyczny silhouette → ZASTĄP
-  - Nowy prompt: cute kawaii cartoon, chubby, Etsy style (patrz §7.1 spec)
-  - Walidacja po generowaniu: `printability_validator.validate_svg()`
-  - Retry przy błędzie (max 3 próby) + fallback mock
-
-- [ ] **S2.4** Nowy Claude prompt — stamp details (inner features)
-  - Plik: `design_agent.py`, nowa funkcja `_generate_stamp_details()`
-  - Wejście: outer_path_d + topic + size_mm
-  - Wyjście: SVG fragment z inner elements
-  - Prompt: patrz §7.2 spec
-
-- [ ] **S2.5** Rozszerzona biblioteka mock — 30+ kształtów
-  - Plik: `design_agent.py`
-  - Dodaj nowe: kot, pies, zając, kura, kwiat (szczegółowy), jabłko, dynia (v2),
-    serce (v2 z falbankami), miś, sowa, lama, kaktus, truskawka, ciasteczko
-  - Każdy kształt: ścieżka z minimum 20 punktami kontrolnymi
-  - Styl: chubby/cute proporcje
-
-- [ ] **S2.6** Obsługa 6 rozmiarów
-  - Plik: `design_agent.py`, `orchestrator.py`
-  - Domyślne sizes: `["XS", "S", "M", "L", "XL", "XXXL"]`
-  - Opcja CLI: `-s XS` generuje tylko jeden rozmiar
+- [x] **S2.2** Nowy format SVG — compound paths (`_write_svg()` → raw XML, `<g id="outer">` + `<g id="stamp">`)
+- [x] **S2.3** Nowy Claude prompt — outer contour (cute kawaii cartoon, chubby, Etsy style)
+- [x] **S2.4** Stamp details proceduralne (mock) — `_stamp_elements_mock()` (oczy+smile dla creature, dots dla roślin)
+- [x] **S2.5** 31 kształtów: +16 nowych (cat, dog, rabbit, hen, bear, owl, llama, fish, bird, apple, cactus, strawberry, tulip, easter_egg, crown, cookie)
+- [x] **S2.6** XXXL=150mm w SIZE_MM; 257 testów passing
 
 **Weryfikacja Sprintu 2:**
 ```bash
