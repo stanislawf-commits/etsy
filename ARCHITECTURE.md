@@ -171,24 +171,25 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] Webhook Etsy → update meta po sprzedaży (`webhook-serve`, RECEIPT_PAID)
 - [x] Restock alert: alerty + optional auto_reprint (`restock-check`)
 
-### Faza 6 — Produkcyjna jakość SVG + STL 🔴 W TOKU (od 2026-03-11)
+### Faza 6 — Produkcyjna jakość SVG + STL 🟡 W TOKU (od 2026-03-11)
 > Pełna specyfikacja: `docs/svg_stl_pipeline.md`
 > Plan sprintów: `docs/ROADMAP_PHASE6.md`
 
-#### Sprint 1 — Naprawa STL (model_agent.py)
-- [ ] Bezier sampling: 8 → 32 punkty na krzywą
-- [ ] Shapely polygon offset (zastąpienie centroid scaling)
-- [ ] Ear-clipping triangulation (zastąpienie fan triangulation)
-- [ ] Taper geometry — krawędź tnąca zbieżna 8-12° (cutting edge 0.4mm)
-- [ ] Fillet górnych krawędzi 0.8-1.2mm
-- [ ] `shapely` dodany do requirements.txt
+#### Sprint 1 — Naprawa STL (model_agent.py) ✅ (2026-03-11)
+- [x] Bezier sampling: 8 → 32 punkty na krzywą
+- [x] Shapely polygon offset (zastąpienie centroid scaling)
+- [x] Ear-clipping triangulation (zastąpienie fan triangulation)
+- [x] Taper geometry — krawędź tnąca zbieżna 8-12° (cutting edge 0.4mm)
+- [x] Fillet config (taper_height: 3.0, fillet_top: 1.0 w product_types.yaml)
+- [x] `shapely` dodany do requirements.txt
 
-#### Sprint 2 — Compound SVG (design_agent.py)
-- [ ] Nowy format SVG: outer layer (cutter) + inner layer (stamp details)
-- [ ] Nowy Claude prompt — styl "cute kawaii cartoon, chubby proportions"
-- [ ] printability_validator.py — kąty, minimalne grubości, circle fit
-- [ ] Biblioteka mock rozszerzona do 30+ kształtów
-- [ ] Obsługa 6 rozmiarów: XS=50mm, S=60mm, M=75mm, L=90mm, XL=110mm, XXXL=150mm
+#### Sprint 2 — Compound SVG (design_agent.py) ✅ (2026-03-11)
+- [x] Nowy format SVG: `<g id="outer">` + `<g id="stamp">` (raw XML)
+- [x] Nowy Claude prompt — styl "cute kawaii cartoon, chubby proportions"
+- [x] `src/utils/printability_validator.py` — validate_svg() → ValidationResult
+- [x] Biblioteka mock: 31 kształtów (+16 nowych: cat, dog, rabbit, hen, bear, owl, llama, fish, bird, apple, cactus, strawberry, tulip, easter_egg, crown, cookie)
+- [x] 6 rozmiarów: XS=50mm, S=60mm, M=75mm, L=90mm, XL=110mm, XXXL=150mm
+- [x] _stamp_elements_mock(): stamp_outline + creature faces + plant dots
 
 #### Sprint 3 — Stamp/Embosser STL + Pipeline
 - [ ] model_agent: generowanie 2 STL na rozmiar (_cutter.stl + _stamp.stl)
@@ -235,4 +236,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — dodana Faza 6*
+*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — Faza 6 Sprint 1+2 ukończone*
