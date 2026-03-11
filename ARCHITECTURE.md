@@ -191,12 +191,13 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] 6 rozmiarów: XS=50mm, S=60mm, M=75mm, L=90mm, XL=110mm, XXXL=150mm
 - [x] _stamp_elements_mock(): stamp_outline + creature faces + plant dots
 
-#### Sprint 3 — Stamp/Embosser STL + Pipeline
-- [ ] model_agent: generowanie 2 STL na rozmiar (_cutter.stl + _stamp.stl)
-- [ ] Stamp geometry: base 3mm + raised relief 2.0-2.5mm
-- [ ] Clearance cutter↔stamp: 0.35-0.45mm w 3D
-- [ ] orchestrator: 6 rozmiarów domyślnie, nowe nazewnictwo plików
-- [ ] Walidacja manifold + printability przed eksportem
+#### Sprint 3 — Stamp/Embosser STL + Pipeline ✅ (2026-03-11)
+- [x] model_agent: generowanie 2 STL na rozmiar ({SIZE}_cutter.stl + {SIZE}_stamp.stl)
+- [x] Stamp geometry: base 3mm + raised relief 2mm (config: base_height=3.0, relief_height=2.0)
+- [x] clearance_3d=0.2mm w config/product_types.yaml
+- [x] generate_all() → cutter+stamp per size, szuka S.svg/M.svg/L.svg, zwraca stl_files[]
+- [x] orchestrator: validate_svg() przed STL, nowe API generate_all()
+- [x] product_io: list_stl_files(slug, product_type)
 
 #### Nowa struktura plików produktu po Fazie 6
 ```
