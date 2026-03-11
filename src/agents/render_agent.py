@@ -80,8 +80,8 @@ class RenderAgent:
         render_map = {
             "hero":      (self._render_hero,      (img_m, slug, topic, canvas_px)),
             "lifestyle": (self._render_lifestyle, (img_m, topic, canvas_px)),
-            "sizes":     (self._render_sizes,     (source_dir, slug, canvas_px)),
-            "detail":    (self._render_detail,    (img_m, canvas_px)),
+            "sizes":     (self._render_sizes,     (source_dir, slug, product_type, canvas_px)),
+            "detail":    (self._render_detail,    (img_m, product_type, canvas_px)),
             "info":      (self._render_info,      (img_m, product_dir, slug, topic, canvas_px)),
         }
 
@@ -109,7 +109,7 @@ class RenderAgent:
         self, source_dir: Path, slug: str, size: str = "M"
     ) -> Image.Image:
         """
-        Kolejność: DALL-E PNG → szary placeholder.
+        Kolejność: DALL-E PNG → szary placeholder z informacją o SVG.
         Zwraca RGBA.
         """
         dalle_path = source_dir / f"{slug}-{size}_dalle_raw.png"
@@ -121,17 +121,28 @@ class RenderAgent:
             except Exception as exc:
                 log.warning("Cannot open DALL-E PNG %s: %s", dalle_path, exc)
 
-        log.debug("Using placeholder for %s size=%s", slug, size)
-        return self._make_placeholder(slug, size)
+        # Sprawdź czy istnieje SVG (Sprint 2+ naming: {SIZE}.svg)
+        svg_path = source_dir / f"{size}.svg"
+        has_svg = svg_path.exists()
+        log.debug("Using placeholder for %s size=%s (svg=%s)", slug, size, has_svg)
+        return self._make_placeholder(slug, size, has_svg=has_svg)
 
-    def _make_placeholder(self, slug: str, size: str, px: int = 1400) -> Image.Image:
-        img  = Image.new("RGBA", (px, px), (200, 200, 200, 255))
+    def _make_placeholder(self, slug: str, size: str, px: int = 1400,
+                          has_svg: bool = False) -> Image.Image:
+        bg_color = (220, 235, 245, 255) if has_svg else (200, 200, 200, 255)
+        img  = Image.new("RGBA", (px, px), bg_color)
         draw = ImageDraw.Draw(img)
-        text = f"{slug}\n[{size}]"
+        label = f"{size}.svg" if has_svg else f"{slug}\n[{size}]"
         draw.text(
-            (px // 2, px // 2), text,
-            fill=(80, 80, 80, 255), font=self._font(48), anchor="mm",
+            (px // 2, px // 2), label,
+            fill=(60, 80, 100, 255) if has_svg else (80, 80, 80, 255),
+            font=self._font(52 if has_svg else 48), anchor="mm",
         )
+        if has_svg:
+            draw.text(
+                (px // 2, px // 2 + 80), "SVG ready · use Blender for 3D render",
+                fill=(100, 120, 140, 255), font=self._font(28), anchor="mm",
+            )
         return img
 
     # ── IMG 1: hero ────────────────────────────────────────────────────────────
@@ -197,7 +208,8 @@ class RenderAgent:
 
     # ── IMG 3: sizes ───────────────────────────────────────────────────────────
 
-    def _render_sizes(self, source_dir: Path, slug: str, canvas_px: int = 2000) -> Image.Image:
+    def _render_sizes(self, source_dir: Path, slug: str, product_type: str = "cutter",
+                      canvas_px: int = 2000) -> Image.Image:
         canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_WHITE)
         draw   = ImageDraw.Draw(canvas)
 
@@ -208,7 +220,8 @@ class RenderAgent:
 
         # Pobierz rozmiary z config
         from src.utils.config_loader import cfg as _cfg
-        sizes_cfg = _cfg("product_types").get("cutter", {}).get("sizes", {})
+        pt_cfg   = _cfg("product_types")
+        sizes_cfg = pt_cfg.get(product_type, pt_cfg.get("cutter", {})).get("sizes", {})
         sizes_info = [
             ("S", int(canvas_px * 0.21), f"S · {sizes_cfg.get('S', {}).get('width_mm', 60)}mm"),
             ("M", int(canvas_px * 0.26), f"M · {sizes_cfg.get('M', {}).get('width_mm', 75)}mm"),
@@ -232,7 +245,8 @@ class RenderAgent:
 
     # ── IMG 4: detail ──────────────────────────────────────────────────────────
 
-    def _render_detail(self, img: Image.Image, canvas_px: int = 2000) -> Image.Image:
+    def _render_detail(self, img: Image.Image, product_type: str = "cutter",
+                       canvas_px: int = 2000) -> Image.Image:
         canvas = Image.new("RGBA", (canvas_px, canvas_px), COLOR_WHITE)
         draw   = ImageDraw.Draw(canvas)
 
@@ -241,16 +255,25 @@ class RenderAgent:
         oy = (canvas_px - prod.height) // 2
         canvas.alpha_composite(prod, (ox, oy))
 
-        # Pobierz grubość ścianki z config
+        # Pobierz parametry z config zależnie od typu
         from src.utils.config_loader import cfg as _cfg
-        wall = _cfg("product_types").get("cutter", {}).get("wall_thickness", 1.8)
-        draw.text(
-            (180, canvas_px // 2), f"\u2192 {wall}mm walls",
-            fill=COLOR_RED, font=self._font(32), anchor="lm",
-        )
+        pt_cfg = _cfg("product_types").get(product_type, _cfg("product_types").get("cutter", {}))
+        if product_type == "stamp":
+            base_h   = pt_cfg.get("base_height", 3.0)
+            relief_h = pt_cfg.get("relief_height", 2.0)
+            detail_line  = f"\u2192 {base_h}mm base + {relief_h}mm relief"
+            bottom_label = "PLA / PETG"
+        else:
+            wall = pt_cfg.get("wall_thickness", 1.8)
+            detail_line  = f"\u2192 {wall}mm walls"
+            bottom_label = "Food Safe PLA"
 
         draw.text(
-            (canvas_px - 60, canvas_px - 60), "Food Safe PLA",
+            (180, canvas_px // 2), detail_line,
+            fill=COLOR_RED, font=self._font(32), anchor="lm",
+        )
+        draw.text(
+            (canvas_px - 60, canvas_px - 60), bottom_label,
             fill=COLOR_GRAY, font=self._font(28), anchor="rb",
         )
 

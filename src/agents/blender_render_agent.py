@@ -97,7 +97,7 @@ class BlenderRenderAgent:
         hero_raw = render_dir / "_blender_hero_raw.jpg"
         if self._blender_render(stl_m, hero_raw, mode="hero", res=canvas_px):
             hero_final = render_dir / "hero.jpg"
-            self._overlay_hero(hero_raw, hero_final, topic, canvas_px)
+            self._overlay_hero(hero_raw, hero_final, topic, product_type, canvas_px)
             renders.append(str(hero_final))
             hero_raw.unlink(missing_ok=True)
         else:
@@ -115,7 +115,7 @@ class BlenderRenderAgent:
 
         # 3. SIZES — 3 rozmiary obok siebie
         sizes_path = render_dir / "sizes.jpg"
-        if self._render_sizes(stl_files, sizes_path, canvas_px):
+        if self._render_sizes(stl_files, sizes_path, canvas_px, product_type):
             renders.append(str(sizes_path))
         else:
             log.warning("Blender sizes render failed")
@@ -124,7 +124,7 @@ class BlenderRenderAgent:
         detail_raw = render_dir / "_blender_detail_raw.jpg"
         if self._blender_render(stl_m, detail_raw, mode="detail", res=canvas_px):
             detail_final = render_dir / "detail.jpg"
-            self._overlay_detail(detail_raw, detail_final, canvas_px)
+            self._overlay_detail(detail_raw, detail_final, product_type, canvas_px)
             renders.append(str(detail_final))
             detail_raw.unlink(missing_ok=True)
         else:
@@ -205,9 +205,10 @@ class BlenderRenderAgent:
 
     # ── Sizes render ───────────────────────────────────────────────────────────
 
-    def _render_sizes(self, stl_files: dict, output_path: Path, canvas_px: int) -> bool:
+    def _render_sizes(self, stl_files: dict, output_path: Path, canvas_px: int,
+                      product_type: str = "cutter") -> bool:
         """Renderuje S, M, L obok siebie na jednym obrazie."""
-        sizes_cfg = cfg("product_types").get("cutter", {}).get("sizes", {})
+        sizes_cfg = cfg("product_types").get(product_type, cfg("product_types").get("cutter", {})).get("sizes", {})
         size_order = [("S", int(canvas_px * 0.26)), ("M", int(canvas_px * 0.33)),
                       ("L", int(canvas_px * 0.40))]
         raw_renders: dict[str, Path] = {}
@@ -261,12 +262,13 @@ class BlenderRenderAgent:
 
     # ── Pillow overlays ────────────────────────────────────────────────────────
 
-    def _overlay_hero(self, raw: Path, out: Path, topic: str, canvas_px: int) -> None:
+    def _overlay_hero(self, raw: Path, out: Path, topic: str, product_type: str,
+                      canvas_px: int) -> None:
         img  = Image.open(raw).convert("RGBA")
         draw = ImageDraw.Draw(img)
 
-        # Badge "Food Safe · 3D Printed" — prawy górny róg
-        badge_text = "Food Safe · 3D Printed"
+        # Badge — prawy górny róg (treść zależna od typu)
+        badge_text = "Clay Embosser · 3D Printed" if product_type == "stamp" else "Food Safe · 3D Printed"
         bw = int(canvas_px * 0.28)
         bh = 68
         bx = canvas_px - bw - 40
@@ -288,13 +290,22 @@ class BlenderRenderAgent:
                   fill=COLOR_WARM, font=self._font(32), anchor="rb")
         img.convert("RGB").save(str(out), "JPEG", quality=92)
 
-    def _overlay_detail(self, raw: Path, out: Path, canvas_px: int) -> None:
+    def _overlay_detail(self, raw: Path, out: Path, product_type: str,
+                        canvas_px: int) -> None:
         img  = Image.open(raw).convert("RGBA")
         draw = ImageDraw.Draw(img)
-        wall = cfg("product_types").get("cutter", {}).get("wall_thickness", 1.8)
-        draw.text((200, canvas_px // 2), f"→ {wall}mm walls",
+        pt_cfg = cfg("product_types").get(product_type, cfg("product_types").get("cutter", {}))
+        if product_type == "stamp":
+            base_h   = pt_cfg.get("base_height", 3.0)
+            relief_h = pt_cfg.get("relief_height", 2.0)
+            detail_line = f"→ {base_h}mm base + {relief_h}mm relief"
+        else:
+            wall = pt_cfg.get("wall_thickness", 1.8)
+            detail_line = f"→ {wall}mm walls"
+        draw.text((200, canvas_px // 2), detail_line,
                   fill=COLOR_RED, font=self._font(38), anchor="lm")
-        draw.text((canvas_px - 60, canvas_px - 60), "Food Safe PLA",
+        bottom_label = "Food Safe PLA" if product_type != "stamp" else "PLA / PETG"
+        draw.text((canvas_px - 60, canvas_px - 60), bottom_label,
                   fill=COLOR_GRAY, font=self._font(30), anchor="rb")
         img.convert("RGB").save(str(out), "JPEG", quality=92)
 
@@ -333,17 +344,25 @@ class BlenderRenderAgent:
     # ── Helpers ────────────────────────────────────────────────────────────────
 
     def _find_stl_files(self, models_dir: Path, slug: str, product_type: str) -> dict[str, Path]:
-        """Szuka plików STL dla rozmiarów S, M, L. Zwraca {size: Path}."""
+        """Szuka plików STL dla rozmiarów XS–XXXL. Zwraca {size: Path}.
+
+        Kolejność sprawdzania (od najnowszego do najstarszego nazewnictwa):
+          1. {SIZE}_{type}.stl          — Sprint 3+ (M_cutter.stl)
+          2. {SIZE}.stl                 — size-only (M.stl, legacy przed Sprint 3)
+          3. {slug}_{SIZE}_{type}.stl   — stare nazewnictwo (test-cutter-m_M_cutter.stl)
+          4. glob *{SIZE}*{type}*.stl   — ostateczny fallback
+        """
         if not models_dir.exists():
             return {}
         result = {}
-        for size_key in ["S", "M", "L", "XS", "XL"]:
+        for size_key in ["XS", "S", "M", "L", "XL", "XXL", "XXXL"]:
             candidates = [
-                models_dir / f"{slug}_{size_key}_{product_type}.stl",
+                models_dir / f"{size_key}_{product_type}.stl",          # Sprint 3+
+                models_dir / f"{size_key}.stl",                          # size-only legacy
+                models_dir / f"{slug}_{size_key}_{product_type}.stl",   # old naming
                 models_dir / f"{slug}-{size_key}_{size_key}_{product_type}.stl",
                 models_dir / f"{slug}-{size_key.lower()}_{size_key}_{product_type}.stl",
             ]
-            # Dodaj każdy znaleziony STL z size_key w nazwie
             for f in models_dir.glob(f"*{size_key}*{product_type}*.stl"):
                 candidates.append(f)
             found = next((p for p in candidates if p.exists()), None)

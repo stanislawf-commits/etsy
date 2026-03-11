@@ -25,17 +25,50 @@ def test_blender_detected(agent):
     assert agent._blender_bin is not None, "Blender not found — install blender package"
 
 
-def test_find_stl_files(tmp_path, agent):
-    """_find_stl_files wykrywa STL po konwencji nazewniczej."""
+def test_find_stl_files_new_naming(tmp_path, agent):
+    """_find_stl_files wykrywa Sprint 3+ nazewnictwo: {SIZE}_{type}.stl."""
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    (models_dir / "M_cutter.stl").write_bytes(b"x" * 1000)
+    (models_dir / "S_cutter.stl").write_bytes(b"x" * 1000)
+    (models_dir / "L_stamp.stl").write_bytes(b"x" * 1000)
+
+    stl_cutter = agent._find_stl_files(models_dir, "any-slug", "cutter")
+    assert "M" in stl_cutter
+    assert "S" in stl_cutter
+    assert "L" not in stl_cutter  # L_stamp.stl nie pasuje do cutter
+
+    stl_stamp = agent._find_stl_files(models_dir, "any-slug", "stamp")
+    assert "L" in stl_stamp
+
+
+def test_find_stl_files_legacy_naming(tmp_path, agent):
+    """_find_stl_files obsługuje stare nazewnictwo: {SIZE}.stl i {slug}_{SIZE}_{type}.stl."""
     models_dir = tmp_path / "models"
     models_dir.mkdir()
     slug = "test-cutter-m"
-    (models_dir / f"{slug}_M_cutter.stl").write_bytes(b"x" * 1000)
+    # size-only (pre-Sprint-3 legacy)
+    (models_dir / "M.stl").write_bytes(b"x" * 1000)
+    # old slug-prefixed naming
     (models_dir / f"{slug}_S_cutter.stl").write_bytes(b"x" * 1000)
 
     stl_files = agent._find_stl_files(models_dir, slug, "cutter")
     assert "M" in stl_files
     assert "S" in stl_files
+
+
+def test_find_stl_files_new_naming_takes_priority(tmp_path, agent):
+    """Nowe nazewnictwo ma wyższy priorytet niż legacy."""
+    models_dir = tmp_path / "models"
+    models_dir.mkdir()
+    slug = "my-slug"
+    new_file = models_dir / "M_cutter.stl"
+    old_file = models_dir / "M.stl"
+    new_file.write_bytes(b"x" * 1000)
+    old_file.write_bytes(b"y" * 1000)
+
+    stl_files = agent._find_stl_files(models_dir, slug, "cutter")
+    assert stl_files["M"] == new_file
 
 
 def test_find_stl_files_missing_dir(tmp_path, agent):
