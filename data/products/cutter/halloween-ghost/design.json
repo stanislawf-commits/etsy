@@ -3,29 +3,13 @@
   "slug": "halloween-ghost",
   "topic": "halloween ghost",
   "product_type": "cutter",
-  "mode": "auto",
+  "mode": "real",
   "files": [
     {
-      "size": "XS",
-      "path": "data/products/cutter/halloween-ghost/source/XS.svg",
-      "width_mm": 50.0,
-      "height_mm": 50.0,
-      "shape": "claude_generated",
-      "has_stamp": true
-    },
-    {
-      "size": "XL",
-      "path": "data/products/cutter/halloween-ghost/source/XL.svg",
-      "width_mm": 110.0,
-      "height_mm": 110.0,
-      "shape": "claude_generated",
-      "has_stamp": true
-    },
-    {
-      "size": "XXXL",
-      "path": "data/products/cutter/halloween-ghost/source/XXXL.svg",
-      "width_mm": 150.0,
-      "height_mm": 150.0,
+      "size": "M",
+      "path": "data/products/cutter/halloween-ghost/source/M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
       "shape": "claude_generated",
       "has_stamp": true
     }

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-03-10T23:40:02.708548",
+  "generated_at": "2026-03-11T20:47:04.498475",
   "category": "baking",
   "method": "static",
   "suggestions": [
@@ -20,14 +20,6 @@
       "source": "static"
     },
     {
-      "topic": "christmas snowflake",
-      "product_type": "cutter",
-      "priority": "high",
-      "reason": "Peak November-December; highest-volume holiday search.",
-      "season": "holiday",
-      "source": "static"
-    },
-    {
       "topic": "christmas tree",
       "product_type": "set",
       "priority": "high",
@@ -36,10 +28,18 @@
       "source": "static"
     },
     {
-      "topic": "halloween pumpkin",
+      "topic": "botanical leaf",
+      "product_type": "stamp",
+      "priority": "high",
+      "reason": "Botanical motifs have strong search volume; pairs well with cottagecore aesthetics.",
+      "season": "evergreen",
+      "source": "static"
+    },
+    {
+      "topic": "christmas snowflake",
       "product_type": "cutter",
       "priority": "high",
-      "reason": "Peak October demand; one of highest-volume seasonal searches.",
+      "reason": "Peak November-December; highest-volume holiday search.",
       "season": "holiday",
       "source": "static"
     }

@@ -1,13 +1,13 @@
 {
   "success": true,
-  "slug": "mountain-climbing",
-  "topic": "mountain climbing",
+  "slug": "floral-wreath",
+  "topic": "floral wreath",
   "product_type": "cutter",
   "mode": "real",
   "files": [
     {
       "size": "M",
-      "path": "data/products/cutter/mountain-climbing/source/M.svg",
+      "path": "data/products_test/cutter/floral-wreath/source/M.svg",
       "width_mm": 75.0,
       "height_mm": 75.0,
       "shape": "claude_generated",
