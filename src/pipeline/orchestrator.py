@@ -83,11 +83,14 @@ def run_pipeline(
 
     with console.status("[bold green]Generuję SVG (DesignAgent)...[/bold green]"):
         try:
+            from src.utils.config_loader import cfg as _cfg
+            _pt_cfg   = _cfg("product_types").get(product_type, _cfg("product_types").get("cutter", {}))
+            all_sizes = list(_pt_cfg.get("sizes", {}).keys()) or ["S", "M", "L"]
             design_agent = create_design_agent("auto")
             design_result = design_agent.generate(
                 topic=topic,
                 product_type=product_type,
-                sizes=["S", "M", "L"],
+                sizes=all_sizes,
                 output_dir=DATA_DIR,
                 slug=slug,
             )
@@ -103,7 +106,7 @@ def run_pipeline(
         with console.status("[bold green]Generuję STL (ModelAgent)...[/bold green]"):
             try:
                 from src.utils.config_loader import cfg as _cfg
-                size_map = _cfg("product_types").get("cutter", {}).get("sizes", {})
+                size_map = _cfg("product_types").get(product_type, _cfg("product_types").get("cutter", {})).get("sizes", {})
 
                 source_dir = Path(design_result["files"][0]["path"]).parent
 

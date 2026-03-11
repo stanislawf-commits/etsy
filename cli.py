@@ -66,20 +66,32 @@ def health():
               help="Rozmiar: XS | S | M | L | XL")
 @click.option("--batch", "-b", default=1, type=click.IntRange(1, 50), show_default=True,
               help="Uruchom pipeline N razy (TrendAgent dobiera tematy automatycznie)")
-def new_product(name, product_type, size, batch):
+@click.option("--topics", default=None,
+              help="Lista tematów rozdzielona przecinkami dla trybu batch (np. 'cat,dog,bear')")
+def new_product(name, product_type, size, batch, topics):
     """Tworzy nowy produkt przez pelny pipeline (listing + SVG + STL).
 
     NAME to temat produktu (opcjonalne - jesli pominienty, TrendAgent dobierze temat).
     Z opcja --batch N uruchamia pipeline N razy bez podawania NAME.
+    Z opcja --topics 'cat,dog,bear' uruchamia pipeline dla podanych tematow.
     """
     from src.pipeline.orchestrator import run_pipeline
+
+    # Parsuj --topics jeśli podano
+    topic_list: list[str] | None = None
+    if topics:
+        topic_list = [t.strip() for t in topics.split(",") if t.strip()]
+        if name:
+            console.print("[red]Błąd: --topics nie może być użyty razem z NAME.[/red]")
+            sys.exit(1)
+        batch = len(topic_list)
 
     if batch > 1 and name:
         console.print("[red]Błąd: --batch nie może być użyty razem z NAME.[/red]")
         console.print("Usuń NAME lub pomiń --batch.")
         sys.exit(1)
 
-    if batch == 1:
+    if batch == 1 and not topic_list:
         # ── Tryb pojedynczy (istniejące zachowanie) ──
         try:
             result = run_pipeline(topic=name, product_type=product_type, size=size)
@@ -125,12 +137,14 @@ def new_product(name, product_type, size, batch):
             sys.exit(1)
 
     else:
-        # ── Tryb batch ──
+        # ── Tryb batch (--batch N lub --topics lista) ──
         results = []
         for i in range(batch):
-            console.rule(f"[bold]Produkt {i + 1}/{batch}[/bold]")
+            topic_i = topic_list[i] if topic_list else None
+            label   = f"'{topic_i}'" if topic_i else f"#{i + 1}"
+            console.rule(f"[bold]Produkt {i + 1}/{batch} — {label}[/bold]")
             try:
-                r = run_pipeline(topic=None, product_type=product_type, size=size)
+                r = run_pipeline(topic=topic_i, product_type=product_type, size=size)
                 results.append(r)
             except Exception as e:
                 console.print(f"[red]Produkt {i + 1} zakończony błędem: {e}[/red]")
