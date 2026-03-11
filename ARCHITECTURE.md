@@ -210,6 +210,30 @@ data/products/{type}/{slug}/
 │   └── ...  (12 plików STL łącznie)
 ```
 
+### Faza 7 — Render Quality + Batch Production + Publish Pipeline ✅ (2026-03-11)
+
+#### Sprint 7.1 — Render Quality dla dual-type STL ✅
+- [x] blender_render_agent: `_find_stl_files()` — nowe nazewnictwo `{SIZE}_{type}.stl` + legacy fallback
+- [x] blender_render_agent: stamp-specific overlays (hero badge "Clay Embosser", detail "3mm base + 2mm relief")
+- [x] blender_render_agent: `product_type` przekazywany do `_render_sizes`, `_overlay_hero`, `_overlay_detail`
+- [x] render_agent: `_render_detail` i `_render_sizes` używają `product_type` zamiast hardcoded "cutter"
+- [x] render_agent: `_load_product_image` wykrywa `{SIZE}.svg` → informacyjny placeholder (blue tint)
+- [x] 261 testów passing (+2)
+
+#### Sprint 7.2 — Batch nowych produktów ✅
+- [x] orchestrator: wszystkie rozmiary z configa (XS,S,M,L,XL,XXXL) zamiast hardcoded ["S","M","L"]
+- [x] orchestrator: `product_type` w size_map zamiast hardcoded "cutter"
+- [x] CLI: `--topics 'cat,dog,bear'` — named batch generation
+- [x] 10 nowych produktów wygenerowanych: cute-cat, cute-dog, teddy-bear, wise-owl, llama-alpaca,
+      tropical-fish, little-bird, red-apple, cute-cactus, strawberry (każdy: 6 SVG + 12 STL + 5 renders)
+
+#### Sprint 7.3 — Publish Pipeline ✅
+- [x] CLI `publish` / `open-product`: używają `find_product_dir()` zamiast flat `DATA_DIR/slug`
+- [x] CLI `publish` / `open-product`: opcja `--type` dla bezpośredniego lookup
+- [x] CLI `publish-all`: masowa publikacja wszystkich `ready_for_publish` produktów
+- [x] `etsy_agent.publish()`: parametr `force_dry_run` (generuje listing_export.json bez API)
+- [x] 16 produktów ready_for_publish — dry-run listing_export.json wygenerowany dla wszystkich
+
 ---
 
 ## Modele AI
@@ -237,4 +261,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — Faza 6 Sprint 1+2 ukończone*
+*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — Faza 7 ukończona*

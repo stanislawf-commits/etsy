@@ -32,9 +32,13 @@ class EtsyAgent:
 
     # ── Publiczne API ──────────────────────────────────────────────────────────
 
-    def publish(self, product_dir: str | Path, slug: str) -> dict:
+    def publish(self, product_dir: str | Path, slug: str,
+                force_dry_run: bool = False) -> dict:
         """
         Publikuje produkt na Etsy lub wykonuje dry-run.
+
+        Args:
+            force_dry_run: Zawsze generuje listing_export.json, nie wysyła do Etsy.
 
         Zwraca: {'success': bool, 'listing_id': str|None, 'url': str|None, 'error': str|None}
         """
@@ -50,8 +54,8 @@ class EtsyAgent:
         listing = load_listing(slug)
         meta    = load_meta(slug)
 
-        # ── Tryb dry-run (brak klucza API) ────────────────────────────────────
-        if not self.api_key:
+        # ── Tryb dry-run (brak klucza API lub wymuszony) ──────────────────────
+        if not self.api_key or force_dry_run:
             return self._dry_run(product_dir, slug, listing, meta)
 
         # ── Brak tokenu OAuth2 ─────────────────────────────────────────────────

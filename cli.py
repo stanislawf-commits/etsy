@@ -358,13 +358,19 @@ def list_products(status_filter, type_filter):
 
 @cli.command("open-product")
 @click.argument("slug")
-def open_product(slug):
+@click.option("--type", "-t", "product_type", default=None,
+              help="Typ produktu: cutter | stamp | set (auto-detect jeśli pominięte)")
+def open_product(slug, product_type):
     """Otwiera folder produktu i wypisuje listing_export.json do terminala."""
     import subprocess
+    from src.utils.product_io import find_product_dir
 
-    product_dir = DATA_DIR / slug
-    if not product_dir.exists():
-        console.print(f"[red]Produkt '{slug}' nie istnieje w {DATA_DIR}[/red]")
+    if product_type:
+        product_dir = DATA_DIR / product_type / slug
+    else:
+        product_dir = find_product_dir(slug)
+    if not product_dir or not product_dir.exists():
+        console.print(f"[red]Produkt '{slug}' nie znaleziony.[/red]")
         sys.exit(1)
 
     export_path = product_dir / "listing_export.json"
@@ -480,13 +486,19 @@ def etsy_auth():
 
 @cli.command("publish")
 @click.argument("slug")
-def publish_product(slug):
+@click.option("--type", "-t", "product_type", default=None,
+              help="Typ produktu: cutter | stamp | set (auto-detect jeśli pominięte)")
+def publish_product(slug, product_type):
     """Publikuje produkt na Etsy (lub dry-run gdy brak klucza API)."""
     from src.agents.etsy_agent import create_etsy_agent
+    from src.utils.product_io import find_product_dir
 
-    product_dir = DATA_DIR / slug
-    if not product_dir.exists():
-        console.print(f"[red]Produkt '{slug}' nie istnieje w {DATA_DIR}[/red]")
+    if product_type:
+        product_dir = DATA_DIR / product_type / slug
+    else:
+        product_dir = find_product_dir(slug)
+    if not product_dir or not product_dir.exists():
+        console.print(f"[red]Produkt '{slug}' nie znaleziony.[/red]")
         sys.exit(1)
 
     agent  = create_etsy_agent()
@@ -518,6 +530,71 @@ def publish_product(slug):
     console.print(f"  URL:        [cyan]{listing_url}[/cyan]")
     console.print(f"  Zdjęcia:    {images}/5")
     console.print(f"\n[dim]Status w meta.json: listed[/dim]\n")
+
+
+@cli.command("publish-all")
+@click.option("--type", "-t", "product_type", default=None,
+              help="Ogranicz do konkretnego typu (cutter | stamp | set)")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Tylko generuj listing_export.json — nie wysyłaj do Etsy")
+def publish_all(product_type, dry_run):
+    """Publikuje wszystkie produkty ze statusem ready_for_publish.
+
+    Bez ETSY_ACCESS_TOKEN działa jako dry-run (generuje listing_export.json).
+    """
+    from src.agents.etsy_agent import create_etsy_agent
+    from src.utils.product_io import PRODUCT_TYPES
+
+    ptypes = [product_type] if product_type else PRODUCT_TYPES
+    candidates: list[tuple[str, str, Path]] = []  # (ptype, slug, path)
+
+    for ptype in ptypes:
+        type_dir = DATA_DIR / ptype
+        if not type_dir.exists():
+            continue
+        for slug_dir in sorted(type_dir.iterdir()):
+            if not slug_dir.is_dir():
+                continue
+            meta_path = slug_dir / "meta.json"
+            if not meta_path.exists():
+                continue
+            try:
+                meta = json.loads(meta_path.read_text())
+            except Exception:
+                continue
+            if meta.get("status") == "ready_for_publish":
+                candidates.append((ptype, slug_dir.name, slug_dir))
+
+    if not candidates:
+        console.print("[yellow]Brak produktów ze statusem ready_for_publish.[/yellow]")
+        return
+
+    console.print(f"[bold]Znaleziono {len(candidates)} produktów do publikacji[/bold]")
+    if dry_run or not os.getenv("ETSY_ACCESS_TOKEN"):
+        console.print("[dim]Tryb: dry-run (generuje listing_export.json)[/dim]")
+
+    agent = create_etsy_agent()
+    force_dr = dry_run or not os.getenv("ETSY_ACCESS_TOKEN")
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Typ",  width=8)
+    table.add_column("Slug", style="dim")
+    table.add_column("Wynik")
+    table.add_column("Szczegóły")
+
+    for ptype, slug, path in candidates:
+        result = agent.publish(product_dir=path, slug=slug, force_dry_run=force_dr)
+        if result.get("dry_run"):
+            status = "[yellow]dry-run[/yellow]"
+            detail = result.get("export_path", "")[-50:]
+        elif result.get("success"):
+            status = "[green]✓ opublikowano[/green]"
+            detail = result.get("url", "")
+        else:
+            status = "[red]błąd[/red]"
+            detail = str(result.get("error", ""))[:60]
+        table.add_row(ptype, slug, status, detail)
+
+    console.print(table)
 
 
 @cli.command("stats")
