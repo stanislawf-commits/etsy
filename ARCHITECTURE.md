@@ -171,6 +171,43 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] Webhook Etsy → update meta po sprzedaży (`webhook-serve`, RECEIPT_PAID)
 - [x] Restock alert: alerty + optional auto_reprint (`restock-check`)
 
+### Faza 6 — Produkcyjna jakość SVG + STL 🔴 W TOKU (od 2026-03-11)
+> Pełna specyfikacja: `docs/svg_stl_pipeline.md`
+> Plan sprintów: `docs/ROADMAP_PHASE6.md`
+
+#### Sprint 1 — Naprawa STL (model_agent.py)
+- [ ] Bezier sampling: 8 → 32 punkty na krzywą
+- [ ] Shapely polygon offset (zastąpienie centroid scaling)
+- [ ] Ear-clipping triangulation (zastąpienie fan triangulation)
+- [ ] Taper geometry — krawędź tnąca zbieżna 8-12° (cutting edge 0.4mm)
+- [ ] Fillet górnych krawędzi 0.8-1.2mm
+- [ ] `shapely` dodany do requirements.txt
+
+#### Sprint 2 — Compound SVG (design_agent.py)
+- [ ] Nowy format SVG: outer layer (cutter) + inner layer (stamp details)
+- [ ] Nowy Claude prompt — styl "cute kawaii cartoon, chubby proportions"
+- [ ] printability_validator.py — kąty, minimalne grubości, circle fit
+- [ ] Biblioteka mock rozszerzona do 30+ kształtów
+- [ ] Obsługa 6 rozmiarów: XS=50mm, S=60mm, M=75mm, L=90mm, XL=110mm, XXXL=150mm
+
+#### Sprint 3 — Stamp/Embosser STL + Pipeline
+- [ ] model_agent: generowanie 2 STL na rozmiar (_cutter.stl + _stamp.stl)
+- [ ] Stamp geometry: base 3mm + raised relief 2.0-2.5mm
+- [ ] Clearance cutter↔stamp: 0.35-0.45mm w 3D
+- [ ] orchestrator: 6 rozmiarów domyślnie, nowe nazewnictwo plików
+- [ ] Walidacja manifold + printability przed eksportem
+
+#### Nowa struktura plików produktu po Fazie 6
+```
+data/products/{type}/{slug}/
+├── source/
+│   ├── S.svg, M.svg, L.svg, XL.svg, XXL.svg, XXXL.svg  ← compound SVG
+├── models/
+│   ├── S_cutter.stl,  S_stamp.stl
+│   ├── M_cutter.stl,  M_stamp.stl
+│   └── ...  (12 plików STL łącznie)
+```
+
 ---
 
 ## Modele AI
@@ -198,4 +235,4 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-10 przez Claude (architect v2)*
+*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — dodana Faza 6*
