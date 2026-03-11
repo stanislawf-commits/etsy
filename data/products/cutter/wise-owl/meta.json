@@ -1,0 +1,33 @@
+{
+  "id": "0a603ecf-f3fb-4f6d-8e7d-e7a85182d1da",
+  "slug": "wise-owl",
+  "topic": "wise owl",
+  "product_type": "cutter",
+  "size": "M",
+  "status": "ready_for_manual_publish",
+  "created_at": "2026-03-11T18:53:57.764943+00:00",
+  "updated_at": "2026-03-11T19:46:16.123097+00:00",
+  "design": {
+    "mode": "auto",
+    "success": true
+  },
+  "models": {
+    "success": true,
+    "sizes": [
+      "S",
+      "M",
+      "L",
+      "XS",
+      "XL",
+      "XXXL"
+    ],
+    "stl_count": 12
+  },
+  "renders": {
+    "success": true,
+    "count": 5
+  },
+  "etsy": {
+    "status": "dry_run"
+  }
+}

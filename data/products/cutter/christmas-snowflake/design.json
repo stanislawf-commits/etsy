@@ -6,25 +6,28 @@
   "mode": "auto",
   "files": [
     {
-      "size": "S",
-      "path": "/home/dell/etsy3d/data/products/cutter/christmas-snowflake/source/S.svg",
-      "width_mm": 60.0,
-      "height_mm": 60.0,
-      "shape": "claude_generated"
+      "size": "XS",
+      "path": "data/products/cutter/christmas-snowflake/source/XS.svg",
+      "width_mm": 50.0,
+      "height_mm": 50.0,
+      "shape": "claude_generated",
+      "has_stamp": true
     },
     {
-      "size": "M",
-      "path": "/home/dell/etsy3d/data/products/cutter/christmas-snowflake/source/M.svg",
-      "width_mm": 75.0,
-      "height_mm": 75.0,
-      "shape": "claude_generated"
+      "size": "XL",
+      "path": "data/products/cutter/christmas-snowflake/source/XL.svg",
+      "width_mm": 110.0,
+      "height_mm": 110.0,
+      "shape": "claude_generated",
+      "has_stamp": true
     },
     {
-      "size": "L",
-      "path": "/home/dell/etsy3d/data/products/cutter/christmas-snowflake/source/L.svg",
-      "width_mm": 90.0,
-      "height_mm": 90.0,
-      "shape": "claude_generated"
+      "size": "XXXL",
+      "path": "data/products/cutter/christmas-snowflake/source/XXXL.svg",
+      "width_mm": 150.0,
+      "height_mm": 150.0,
+      "shape": "claude_generated",
+      "has_stamp": true
     }
   ]
 }

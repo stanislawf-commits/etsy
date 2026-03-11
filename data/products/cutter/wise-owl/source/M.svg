@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="75.0mm" height="75.0mm"
+     viewBox="0 0 75.0 75.0">
+  <rect width="75.0mm" height="75.0mm" fill="white"/>
+  <!-- LAYER 1: outer — zewnętrzna sylwetka cuttera -->
+  <g id="outer">
+    <path id="outer_contour" d="M 37.5,3 C 30,3 24,6 20,11 C 16,6 10,5 6,8 C 2,11 4,18 8,22 C 5,28 4,35 6,41 C 7,45 10,49 13,52 C 11,56 10,61 12,65 C 14,69 19,71 24,70 C 28,72 33,73 37.5,73 C 42,73 47,72 51,70 C 56,71 61,69 63,65 C 65,61 64,56 62,52 C 65,49 68,45 69,41 C 71,35 70,28 67,22 C 71,18 73,11 69,8 C 65,5 59,6 55,11 C 51,6 45,3 37.5,3 Z" fill="none" stroke="#000000" stroke-width="1.2"/>
+  </g>
+  <!-- LAYER 2: stamp — wewnętrzne detale embossera -->
+  <g id="stamp">
+    <path id="stamp_outline" d="M 37.50,50.04 C 42.83,50.04 47.19,44.40 47.19,37.50 C 47.19,30.60 42.83,24.96 43.20,24.96 L 40.35,19.83 L 37.50,24.96 L 34.65,19.83 L 31.80,24.96 C 32.17,24.96 27.81,30.60 27.81,37.50 C 27.81,44.40 32.17,50.04 37.50,50.04 Z" fill="none" stroke="#666666" stroke-width="0.8"/>
+    <circle id="eye_l" cx="30.00" cy="31.50" r="3.00" fill="#333333"/>
+    <circle id="eye_r" cx="45.00" cy="31.50" r="3.00" fill="#333333"/>
+    <path id="smile" d="M 28.50,41.25 Q 37.50,46.65 46.50,41.25" fill="none" stroke="#333333" stroke-width="1.0"/>
+  </g>
+</svg>

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="150.0mm" height="150.0mm"
+     viewBox="0 0 150.0 150.0">
+  <rect width="150.0mm" height="150.0mm" fill="white"/>
+  <!-- LAYER 1: outer — zewnętrzna sylwetka cuttera -->
+  <g id="outer">
+    <path id="outer_contour" d="M 75.0,9.0 C 95.0,9.0 112.0,15.0 125.0,28.0 C 138.0,41.0 145.0,58.0 145.0,75.0 C 145.0,92.0 138.0,109.0 125.0,122.0 C 112.0,135.0 95.0,141.0 75.0,141.0 C 55.0,141.0 38.0,135.0 25.0,122.0 C 12.0,109.0 5.0,92.0 5.0,75.0 C 5.0,58.0 12.0,41.0 25.0,28.0 C 38.0,15.0 55.0,9.0 75.0,9.0 Z" fill="none" stroke="#000000" stroke-width="1.2"/>
+  </g>
+  <!-- LAYER 2: stamp — wewnętrzne detale embossera -->
+  <g id="stamp">
+    <path id="stamp_outline" d="M 98.69,88.68 L 75.00,102.36 L 51.31,88.68 L 51.31,61.32 L 75.00,47.64 L 98.69,61.32 Z" fill="none" stroke="#666666" stroke-width="0.8"/>
+  </g>
+</svg>

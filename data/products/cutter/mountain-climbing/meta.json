@@ -15,12 +15,19 @@
     "sizes": [
       "S",
       "M",
-      "L"
+      "L",
+      "XS",
+      "XL",
+      "XXXL"
     ],
-    "stl_count": 3
+    "stl_count": 12
   },
   "renders": {
     "success": true,
     "count": 5
-  }
+  },
+  "etsy": {
+    "status": "dry_run"
+  },
+  "updated_at": "2026-03-11T22:05:49.595331+00:00"
 }

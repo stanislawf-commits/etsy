@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="50.0mm" height="50.0mm"
+     viewBox="0 0 50.0 50.0">
+  <rect width="50.0mm" height="50.0mm" fill="white"/>
+  <!-- LAYER 1: outer — zewnętrzna sylwetka cuttera -->
+  <g id="outer">
+    <path id="outer_contour" d="M 25.0,4.0 C 22.0,4.0 20.0,6.5 21.0,9.0 C 15.0,6.0 6.0,8.0 4.0,16.0 C 2.0,24.0 8.0,34.0 15.0,40.0 C 19.0,43.5 22.5,46.0 25.0,47.0 C 27.5,46.0 31.0,43.5 35.0,40.0 C 42.0,34.0 48.0,24.0 46.0,16.0 C 44.0,8.0 35.0,6.0 29.0,9.0 C 30.0,6.5 28.0,4.0 25.0,4.0 Z" fill="none" stroke="#000000" stroke-width="1.2"/>
+  </g>
+  <!-- LAYER 2: stamp — wewnętrzne detale embossera -->
+  <g id="stamp">
+    <path id="stamp_outline" d="M 25.00,32.22 C 28.97,32.22 32.22,28.97 32.22,25.00 C 32.22,21.03 28.97,17.78 26.52,17.78 C 26.52,15.88 23.48,15.88 23.48,17.78 C 21.03,17.78 17.78,21.03 17.78,25.00 C 17.78,28.97 21.03,32.22 25.00,32.22 Z" fill="none" stroke="#666666" stroke-width="0.8"/>
+    <circle cx="19.00" cy="25.00" r="1.50" fill="#999999"/>
+    <circle cx="25.00" cy="25.00" r="1.50" fill="#999999"/>
+    <circle cx="31.00" cy="25.00" r="1.50" fill="#999999"/>
+  </g>
+</svg>

@@ -1,0 +1,57 @@
+{
+  "success": true,
+  "slug": "cute-cactus",
+  "topic": "cute cactus",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "S",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/S.svg",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "M",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "L",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/L.svg",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XS",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/XS.svg",
+      "width_mm": 50.0,
+      "height_mm": 50.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XL",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/XL.svg",
+      "width_mm": 110.0,
+      "height_mm": 110.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XXXL",
+      "path": "/home/dell/etsy3d/data/products/cutter/cute-cactus/source/XXXL.svg",
+      "width_mm": 150.0,
+      "height_mm": 150.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    }
+  ]
+}

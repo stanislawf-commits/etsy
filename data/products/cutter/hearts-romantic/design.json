@@ -1,0 +1,57 @@
+{
+  "success": true,
+  "slug": "hearts-romantic",
+  "topic": "hearts romantic",
+  "product_type": "cutter",
+  "mode": "auto",
+  "files": [
+    {
+      "size": "S",
+      "path": "data/products/cutter/hearts-romantic/source/S.svg",
+      "width_mm": 60.0,
+      "height_mm": 60.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "M",
+      "path": "data/products/cutter/hearts-romantic/source/M.svg",
+      "width_mm": 75.0,
+      "height_mm": 75.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "L",
+      "path": "data/products/cutter/hearts-romantic/source/L.svg",
+      "width_mm": 90.0,
+      "height_mm": 90.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XS",
+      "path": "data/products/cutter/hearts-romantic/source/XS.svg",
+      "width_mm": 50.0,
+      "height_mm": 50.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XL",
+      "path": "data/products/cutter/hearts-romantic/source/XL.svg",
+      "width_mm": 110.0,
+      "height_mm": 110.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    },
+    {
+      "size": "XXXL",
+      "path": "data/products/cutter/hearts-romantic/source/XXXL.svg",
+      "width_mm": 150.0,
+      "height_mm": 150.0,
+      "shape": "claude_generated",
+      "has_stamp": true
+    }
+  ]
+}
