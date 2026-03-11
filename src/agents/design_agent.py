@@ -147,11 +147,12 @@ def _validate_path(path_d: str, size_mm: float) -> tuple[bool, str]:
     if not d_upper.rstrip().endswith("Z"):
         return False, "Path must end with Z command"
 
-    # Tylko jedna ścieżka (jedno M na początku)
-    # Liczymy M po pierwszym znaku (spacje wokół lub cyfry)
-    subsequent_m = re.findall(r"(?<=[^A-Za-z])M\s", d_upper[2:])
-    if subsequent_m:
-        return False, f"Multiple subpaths detected ({1 + len(subsequent_m)} M commands) — must be single closed path"
+    # Każda subpath musi kończyć się Z (sprawdzamy czy ostatni Z zamyka całość)
+    # Multiple subpaths dozwolone — liczymy M i Z, powinno być tyle samo
+    m_count = len(re.findall(r"(?<![A-Za-z])M", d_upper))
+    z_count = len(re.findall(r"(?<![A-Za-z])Z", d_upper))
+    if m_count != z_count:
+        return False, f"Subpath count mismatch: {m_count} M commands but {z_count} Z commands — each subpath must end with Z"
 
     # Minimalna liczba punktów współrzędnych
     coords = re.findall(r"-?\d+\.?\d*\s*,\s*-?\d+\.?\d*", d)
@@ -1153,6 +1154,67 @@ def _make_svg_mock(
     return _write_svg(path_d, out_path, size_mm, product_type, topic, size, shape_key, stamp_elements)
 
 
+SHAPE_HINTS: dict[str, str] = {
+    "floral wreath": (
+        "A circular wreath: 6 evenly-spaced 5-petal flowers around a circle, "
+        "small leaves between flowers. Draw outer ring first, then each flower. "
+        "Multiple subpaths allowed — one M per element."
+    ),
+    "mountain climbing": (
+        "A mountain silhouette: large central triangle peak with rounded top, "
+        "smaller peak on left, jagged rocky base. Single closed path."
+    ),
+    "butterflies": (
+        "A butterfly: two large rounded upper wings, two smaller lower wings, "
+        "oval body in center. Symmetrical left-right. Multiple subpaths OK."
+    ),
+    "celestial moon stars": (
+        "A crescent moon facing right with 3 small 5-point stars around it. "
+        "Moon = thick crescent shape. Multiple subpaths for moon + each star."
+    ),
+    "cottagecore mushrooms": (
+        "A single mushroom: wide rounded dome cap, short thick stem, "
+        "2-3 circular spots on cap. Chubby kawaii proportions. Multiple subpaths."
+    ),
+    "hearts romantic": (
+        "A classic heart shape: two rounded bumps at top meeting at a point below. "
+        "Chubby kawaii proportions, very smooth curves. Single closed path."
+    ),
+    "geometric abstract": (
+        "A 6-pointed star with rounded tips, inner hexagon outline. "
+        "Two overlapping triangles forming Star of David shape. Multiple subpaths."
+    ),
+    "botanical leaves": (
+        "A single leaf: oval shape tapering to point, central midrib line, "
+        "4 curved side veins. Slightly asymmetric natural look. Multiple subpaths."
+    ),
+    "christmas snowflake": (
+        "A 6-arm snowflake: 6 identical arms radiating from center, "
+        "each arm has 2 small branches. Perfectly symmetrical. Multiple subpaths."
+    ),
+    "halloween ghost": (
+        "A cute ghost: rounded dome top, wavy bottom edge with 3 bumps, "
+        "two oval eyes, small O mouth. Single flowing closed path."
+    ),
+    "halloween pumpkin": (
+        "A pumpkin: round body with 5 vertical segments, short stem on top, "
+        "small leaf. Triangle eyes and jagged smile. Multiple subpaths."
+    ),
+    "easter bunny": (
+        "A bunny head: round face, two tall oval ears, small nose, "
+        "whisker dots. Chubby kawaii style. Multiple subpaths."
+    ),
+    "easter egg": (
+        "An egg shape: oval taller than wide, horizontal zigzag band across middle, "
+        "small dots above and below band. Multiple subpaths."
+    ),
+    "gingerbread house": (
+        "A house silhouette: square base with triangular roof, "
+        "centered door rectangle, two window squares. Multiple subpaths."
+    ),
+}
+
+
 def _make_svg_real(
     topic: str,
     product_type: str,
@@ -1190,29 +1252,30 @@ def _make_svg_real(
         star_pts.append(f"{cx + r * math.cos(a):.1f},{cy + r * math.sin(a):.1f}")
     star_example = "M " + " L ".join(star_pts) + " Z"
 
-    # S2.3: kawaii prompt dla outer contour
-    prompt = f"""You are an SVG path engineer for 3D-printed cookie cutters.
+    shape_hint = SHAPE_HINTS.get(topic.lower(), "")
+    hint_line = f"\nShape guide: {shape_hint}" if shape_hint else ""
 
-Task: Generate ONE single closed SVG path (the `d` attribute) that clearly depicts a **{topic}** silhouette in cute kawaii cartoon style.
+    prompt = f"""You are an SVG path engineer specializing in cute kawaii cookie cutter designs for 3D printing.
+
+Task: Generate SVG path(s) depicting a **{topic}** in cute kawaii cartoon style.{hint_line}
 
 Style requirements:
-- cute kawaii cartoon style, chubby proportions, simple recognizable silhouette
-- no thin elements, no text
-- single closed path, smooth organic curves
+- cute kawaii cartoon style, chubby rounded proportions
+- bold outlines suitable for 3D printing (no thin elements under 1.2mm)
+- simple recognizable silhouette, no text
 
 Specifications:
-- ViewBox: 0 0 {size_mm} {size_mm}  (coordinates in mm)
-- Center of shape: ({cx:.1f}, {cy:.1f})
-- Shape should fill roughly {s * 0.9:.1f}–{s * 1.0:.1f} mm radius from center
-- Use SVG path commands: M, L, C, Q, Z  (uppercase only, avoid A arcs)
-- The path MUST be a single closed path: exactly one M at the start, end with Z
-- NO multiple subpaths (no second M after the first one)
-- Minimum 10 anchor/control points for a recognizable shape
-- Coordinates MUST stay within [2, {size_mm - 2:.0f}] on both axes
+- ViewBox: 0 0 {size_mm} {size_mm} (coordinates in mm)
+- Center: ({cx:.1f}, {cy:.1f})
+- Shape fills roughly {s * 0.85:.1f}–{s * 1.0:.1f} mm radius from center
+- Use SVG path commands: M, L, C, Q, Z (uppercase only, avoid A arcs)
+- Each subpath: one M at start, end with Z
+- Multiple subpaths allowed (separate with space between Z and M)
+- Minimum 8 anchor points per subpath for smooth curves
+- All coordinates within [3, {size_mm - 3:.0f}] on both axes
 
-Reference examples (correct format):
-Heart: {heart_example}
-Star:  {star_example}
+Reference — correct heart path:
+{heart_example}
 
 Output ONLY the path `d` value — no XML, no quotes, no markdown, no explanation.
 """
@@ -1228,7 +1291,8 @@ Output ONLY the path `d` value — no XML, no quotes, no markdown, no explanatio
         try:
             msg = client.messages.create(
                 model=MODEL,
-                max_tokens=1024,
+                max_tokens=2048,
+                system="You are an expert SVG path engineer. Output only raw SVG path d= values. Never include XML tags, markdown, or explanations.",
                 messages=[{"role": "user", "content": prompt + retry_note}],
             )
             path_d = msg.content[0].text.strip()
