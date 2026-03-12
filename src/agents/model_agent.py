@@ -320,13 +320,17 @@ class SVGPathParser:
 class OpenSCADGenerator:
     """Generuje kod .scad dla cutterow i stempli."""
 
-    def generate_scad(self, contours: list, product_type: str, size_mm: float, slug: str) -> str:
+    def generate_scad(self, contours: list, product_type: str,
+                      size_mm: float, slug: str, svg_path: str = "") -> str:
         norm = self._normalize(contours, size_mm)
+        n = len(contours)
         if product_type == "stamp":
-            return self._scad_stamp(norm, slug)
+            return self._scad_stamp(norm, slug, size_mm, svg_path)
         elif product_type == "combo":
-            return self._scad_cutter(norm, slug) + "\n" + self._scad_stamp(norm, slug)
-        return self._scad_cutter(norm, slug)
+            return (self._scad_cutter(norm, slug, size_mm, svg_path, n)
+                    + "\n" + self._scad_stamp(norm, slug, size_mm, svg_path))
+        else:
+            return self._scad_cutter(norm, slug, size_mm, svg_path, n)
 
     def _normalize(self, contours: list, size_mm: float) -> list:
         all_pts = [p for c in contours for p in c]
@@ -363,32 +367,79 @@ class OpenSCADGenerator:
         lines.append("}")
         return "\n".join(lines)
 
-    def _scad_cutter(self, contours: list, slug: str) -> str:
-        body   = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=WALL_THICK_MM)
-        hollow = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=-CUTTING_EDGE_MM,
-                                     z_offset=BASE_THICK_MM)
-        base   = self._union_extrude(contours, BASE_THICK_MM,   offset_r=WALL_THICK_MM)
-        return (
-            f"$fn=64;\n"
-            f"// Cutter: {slug}\n"
-            f"// wall={WALL_THICK_MM}mm edge={CUTTING_EDGE_MM}mm"
-            f" base={BASE_THICK_MM}mm h={TOTAL_HEIGHT_MM}mm\n"
-            f"difference() {{\n"
-            f"  {body}\n"
-            f"  {hollow}\n"
-            f"}}\n"
-            f"{base}\n"
-        )
+    def _scad_cutter(self, contours: list, slug: str,
+                     size_mm: float, svg_path: str, n_subpaths: int) -> str:
+        svg_abs = str(Path(svg_path).resolve()) if svg_path else ""
 
-    def _scad_stamp(self, contours: list, slug: str) -> str:
-        base   = self._union_extrude(contours, BASE_THICK_MM,    offset_r=WALL_THICK_MM)
-        relief = self._union_extrude(contours, RELIEF_HEIGHT_MM, z_offset=BASE_THICK_MM)
-        return (
-            f"$fn=64;\n"
-            f"// Stamp: {slug}\n"
-            f"{base}\n"
-            f"{relief}\n"
-        )
+        if not svg_abs:
+            # fallback — stary kod
+            body   = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=WALL_THICK_MM)
+            hollow = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=-CUTTING_EDGE_MM,
+                                         z_offset=BASE_THICK_MM)
+            base   = self._union_extrude(contours, BASE_THICK_MM,   offset_r=WALL_THICK_MM)
+            return f"$fn=64;\ndifference() {{\n  {body}\n  {hollow}\n}}\n{base}\n"
+
+        if n_subpaths <= 3:
+            # TYP A — organiczny cutter: offset zewnętrznej ścieżki SVG
+            half = size_mm / 2
+            margin  = 3.0
+            wall    = WALL_THICK_MM
+            return (
+                f'$fn=128;\n'
+                f'// cutter TYP A (prosty) {slug} {size_mm}mm n={n_subpaths}\n'
+                f'difference() {{\n'
+                f'  linear_extrude(height={TOTAL_HEIGHT_MM})\n'
+                f'    offset(r={margin + wall})\n'
+                f'      translate([-{half},-{half}])\n'
+                f'        import("{svg_abs}", center=false);\n'
+                f'  translate([0,0,-0.1])\n'
+                f'  linear_extrude(height={TOTAL_HEIGHT_MM + 0.2})\n'
+                f'    offset(r={margin})\n'
+                f'      translate([-{half},-{half}])\n'
+                f'        import("{svg_abs}", center=false);\n'
+                f'}}\n'
+            )
+        else:
+            # TYP B — złożony wzór: zaokrąglony prostokąt jako kontener
+            box   = size_mm + 12.0
+            r_out = 8.0
+            wall  = WALL_THICK_MM
+            r_in  = max(r_out - wall, 1.0)
+            return (
+                f'$fn=128;\n'
+                f'// cutter TYP B (złożony) {slug} {size_mm}mm n={n_subpaths}\n'
+                f'module rr(w,h,r) {{ offset(r=r) offset(r=-r) square([w,h],center=true); }}\n'
+                f'difference() {{\n'
+                f'  linear_extrude(height={TOTAL_HEIGHT_MM})\n'
+                f'    rr({box},{box},{r_out});\n'
+                f'  translate([0,0,-0.1])\n'
+                f'  linear_extrude(height={TOTAL_HEIGHT_MM + 0.2})\n'
+                f'    rr({box - wall*2},{box - wall*2},{r_in});\n'
+                f'}}\n'
+            )
+
+    def _scad_stamp(self, contours: list, slug: str,
+                    size_mm: float, svg_path: str) -> str:
+        svg_abs = str(Path(svg_path).resolve()) if svg_path else ""
+        half = size_mm / 2
+
+        if svg_abs:
+            return (
+                f'$fn=64;\n'
+                f'// stamp {slug} {size_mm}mm\n'
+                f'// base\n'
+                f'translate([-{half},{-half},0])\n'
+                f'  cube([{size_mm},{size_mm},{BASE_THICK_MM}]);\n'
+                f'// relief\n'
+                f'translate([-{half},{-half},{BASE_THICK_MM}])\n'
+                f'  linear_extrude(height={RELIEF_HEIGHT_MM})\n'
+                f'    import("{svg_abs}", center=false);\n'
+            )
+        else:
+            # fallback — stary kod bez svg_path
+            base   = self._union_extrude(contours, BASE_THICK_MM,    offset_r=WALL_THICK_MM)
+            relief = self._union_extrude(contours, RELIEF_HEIGHT_MM,  z_offset=BASE_THICK_MM)
+            return f"$fn=64;\n// Stamp fallback: {slug}\n{base}\n{relief}\n"
 
 
 # ── PurePythonSTLWriter ───────────────────────────────────────────────────────
@@ -851,7 +902,7 @@ class ModelAgent:
         }
 
         if self.mode == "openscad":
-            n_tri = self._generate_via_openscad(contours, product_type, size_mm, slug, stl_path)
+            n_tri = self._generate_via_openscad(contours, product_type, size_mm, slug, stl_path, svg_path=svg_path)
         elif product_type == "stamp":
             n_tri = self.stl_writer.generate_stamp_stl(main_contour, model_cfg, stl_path)
         else:
@@ -911,8 +962,10 @@ class ModelAgent:
 
         return {"slug": slug, "stl_files": all_stl_files, "sizes": sizes_result}
 
-    def _generate_via_openscad(self, contours, product_type, size_mm, slug, stl_path) -> int:
-        scad_code = self.scad_gen.generate_scad(contours, product_type, size_mm, slug)
+    def _generate_via_openscad(self, contours, product_type, size_mm, slug, stl_path, svg_path="") -> int:
+        scad_code = self.scad_gen.generate_scad(
+            contours, product_type, size_mm, slug, svg_path=str(svg_path)
+        )
         with tempfile.NamedTemporaryFile(suffix=".scad", mode="w", delete=False) as f:
             f.write(scad_code)
             scad_path = f.name

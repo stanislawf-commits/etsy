@@ -186,7 +186,17 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] `stroke-width=1.5mm`, `fill="white"`, `fill-rule="evenodd"`
 - [x] PNG zapisywany jako `{size}_dalle_raw.png` obok SVG (persystencja)
 - [x] **v9 — parametry finalne:** silhouette prompts (rubber stamp style), threshold=50%, turdsize=80, opttolerance=0.5 — zero morphology
-- [x] **Pełny pipeline test** (floral wreath, XS): SVG 5964B/142 nodes → STL 226KB watertight ✅
+- [x] **v11 — design_agent fixes:**
+  - DALL-E prompt: explicit NO circle/oval/border/frame
+  - subpath filter: keep all segments >= 10% of longest (nie tylko najdłuższy)
+  - fix canvas frame: `M0` prefix segment usuwany przed liczeniem progu 10%
+  - wynik: 3 subpaths, 52 nodes, 5KB — czysty wieniec bez tła ✅
+- [x] **model_agent OpenSCAD rewrite** (`OpenSCADGenerator._scad_cutter/_scad_stamp`):
+  - `_scad_stamp`: kwadratowa baza size_mm×size_mm×4mm + `linear_extrude(import(svg))` relief 1.5mm
+  - `_scad_cutter` TYP A (n_subpaths ≤ 3): `offset(r=4.8) import(svg)` minus `offset(r=3.0)` — organiczny kształt
+  - `_scad_cutter` TYP B (n_subpaths > 3): zaokrąglony prostokąt bbox+12mm jako kontener ściany
+  - `generate_scad(svg_path=)` + `_generate_via_openscad(svg_path=)` — przekazanie ścieżki SVG
+  - test: XS_cutter.stl (52KB watertight) + XS_stamp.stl (469KB watertight) ✅
 - [ ] Regeneracja 22 produktów (XS) z DALL-E+potrace
 - [ ] Rebuild STL po nowych SVG
 
@@ -298,4 +308,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 parametry finalne v9; pełny pipeline SVG→STL przetestowany*
+*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 v11: design_agent canvas-frame fix + model_agent OpenSCAD import(svg) TYP A/B; pipeline SVG→STL watertight ✅*
