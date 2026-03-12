@@ -171,7 +171,7 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] Webhook Etsy → update meta po sprzedaży (`webhook-serve`, RECEIPT_PAID)
 - [x] Restock alert: alerty + optional auto_reprint (`restock-check`)
 
-### Faza 8 — SVG Quality Sprint (DALL-E+potrace pipeline) 🟡 W TOKU (od 2026-03-12)
+### Faza 8 — SVG Quality Sprint (DALL-E+potrace pipeline) ✅ PARAMETRY FINALNE (2026-03-12)
 
 #### Stan na 2026-03-12
 - [x] `_make_svg_dalle_potrace()` — nowy tryb `mode='dalle'` w DesignAgent
@@ -185,10 +185,20 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] walidacja potrace z marginesem 3× (viewBox tnie resztę)
 - [x] `stroke-width=1.5mm`, `fill="white"`, `fill-rule="evenodd"`
 - [x] PNG zapisywany jako `{size}_dalle_raw.png` obok SVG (persystencja)
-- [ ] Finalizacja parametrów ImageMagick (threshold, turdsize) — w toku
-- [ ] Test stabilności na 3+ tematach
+- [x] **v9 — parametry finalne:** silhouette prompts (rubber stamp style), threshold=50%, turdsize=80, opttolerance=0.5 — zero morphology
+- [x] **Pełny pipeline test** (floral wreath, XS): SVG 5964B/142 nodes → STL 226KB watertight ✅
 - [ ] Regeneracja 22 produktów (XS) z DALL-E+potrace
 - [ ] Rebuild STL po nowych SVG
+
+#### Parametry pipeline v9 (finalne)
+| krok | parametr | wartość |
+|------|----------|---------|
+| DALL-E prompt | styl | silhouette / rubber stamp, solid black fill |
+| ImageMagick | threshold | 50%, zero blur, zero morphology |
+| potrace | turdsize | 80 |
+| potrace | alphamax | 1.5 |
+| potrace | opttolerance | 0.5 |
+| wynik | nodes | ~142, 1 path, ~6KB |
 
 #### Tryby design_agent.py (aktualne)
 | mode | backend | opis |
@@ -288,4 +298,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 SVG Quality Sprint w toku*
+*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 parametry finalne v9; pełny pipeline SVG→STL przetestowany*
