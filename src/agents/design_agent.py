@@ -1195,12 +1195,10 @@ def _make_svg_dalle_potrace(
                 [
                     "convert", str(png_path),
                     "-gravity", "Center",
-                    "-crop", "900x900+0+0", "+repage",
+                    "-crop", "920x920+0+0", "+repage",
                     "-colorspace", "Gray",
-                    "-white-threshold", "85%",
-                    "-blur", "0x0.6",
-                    "-threshold", "50%",
-                    "-morphology", "Dilate", "Disk:1.0",
+                    "-blur", "0x0.4",
+                    "-threshold", "60%",
                     "-negate",
                     "-type", "Bilevel",
                     str(bmp_path),
@@ -1218,9 +1216,9 @@ def _make_svg_dalle_potrace(
                     "potrace", str(bmp_path),
                     "--svg",
                     "--output", str(svg_raw),
-                    "--turdsize", "20",   # usuń małe szumy
-                    "--alphamax", "1.0",  # gładkie krzywe
-                    "--opttolerance", "0.4",
+                    "--turdsize", "40",
+                    "--alphamax", "1.5",
+                    "--opttolerance", "0.8",
                 ],
                 check=True, capture_output=True,
             )
@@ -1288,12 +1286,13 @@ def _make_svg_dalle_potrace(
     path_d = _scale_path(path_d_raw, scale_x, scale_y)
 
     # ── 7. Zapisz finalny SVG z transformem korygującym y-flip ──────
-    ok, reason = _validate_path(path_d, size_mm)
+    # Walidacja z 3× marginesem — SVG viewBox przytnie nadmiar przy renderowaniu
+    ok, reason = _validate_path(path_d, size_mm * 3)
     if not ok:
         log.warning("potrace validation failed (%s) — falling back", reason)
         return _make_svg_real(topic, product_type, size, out_path)
 
-    stroke_w = max(1.2, 2.2 / max(scale_x, scale_y))
+    stroke_w = 1.5  # mm — bezpośrednio w przestrzeni viewBox po scale(1,-1)
 
     svg_out = f"""<?xml version="1.0" encoding="utf-8"?>
 <svg xmlns="http://www.w3.org/2000/svg"
@@ -1302,10 +1301,11 @@ def _make_svg_dalle_potrace(
   <rect width="{size_mm}mm" height="{size_mm}mm" fill="white"/>
   <!-- DALL-E 3 + potrace | topic: {topic} | size: {size} -->
   <g id="outer"
-     transform="translate({offset:.2f},{size_mm - offset:.2f}) scale({scale_x:.6f},{-scale_y:.6f})">
+     transform="translate(0,{size_mm:.2f}) scale(1,-1)">
     <path id="outer_contour"
           d="{path_d}"
-          fill="none"
+          fill="white"
+          fill-rule="evenodd"
           stroke="#000000"
           stroke-width="{stroke_w:.3f}"
           stroke-linecap="round"

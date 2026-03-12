@@ -171,6 +171,33 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 - [x] Webhook Etsy → update meta po sprzedaży (`webhook-serve`, RECEIPT_PAID)
 - [x] Restock alert: alerty + optional auto_reprint (`restock-check`)
 
+### Faza 8 — SVG Quality Sprint (DALL-E+potrace pipeline) 🟡 W TOKU (od 2026-03-12)
+
+#### Stan na 2026-03-12
+- [x] `_make_svg_dalle_potrace()` — nowy tryb `mode='dalle'` w DesignAgent
+- [x] Pipeline: DALL-E 3 PNG → ImageMagick threshold → potrace → SVG
+- [x] `DALLE_PROMPTS` — 14 tematów z dedykowanymi promptami (anty-3D, coloring book style)
+- [x] `SHAPE_HINTS` — wskazówki wizualne dla Claude API (tryb real)
+- [x] `_validate_path` — obsługa multi-subpath (M/Z balance zamiast single-path)
+- [x] `max_tokens` 1024→2048 (fix truncation dla złożonych kształtów Claude)
+- [x] potrace skalowanie: viewBox × 10 (fix: było /10, powodowało out-of-bounds)
+- [x] transform `translate(0,size_mm) scale(1,-1)` — y-flip bez podwójnego skalowania
+- [x] walidacja potrace z marginesem 3× (viewBox tnie resztę)
+- [x] `stroke-width=1.5mm`, `fill="white"`, `fill-rule="evenodd"`
+- [x] PNG zapisywany jako `{size}_dalle_raw.png` obok SVG (persystencja)
+- [ ] Finalizacja parametrów ImageMagick (threshold, turdsize) — w toku
+- [ ] Test stabilności na 3+ tematach
+- [ ] Regeneracja 22 produktów (XS) z DALL-E+potrace
+- [ ] Rebuild STL po nowych SVG
+
+#### Tryby design_agent.py (aktualne)
+| mode | backend | opis |
+|------|---------|------|
+| `mock` | procedural | 31 kształtów, bez API, CI/testy |
+| `real` | Claude API | claude-opus-4-6, multi-subpath SVG |
+| `auto` | Claude→mock | real jeśli ANTHROPIC_API_KEY dostępny |
+| `dalle` | DALL-E+potrace | DALL-E 3 PNG → ImageMagick → potrace → SVG |
+
 ### Faza 6 — Produkcyjna jakość SVG + STL 🟡 W TOKU (od 2026-03-11)
 > Pełna specyfikacja: `docs/svg_stl_pipeline.md`
 > Plan sprintów: `docs/ROADMAP_PHASE6.md`
@@ -261,4 +288,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-11 przez Claude (architect v2) — Faza 7 ukończona*
+*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 SVG Quality Sprint w toku*
