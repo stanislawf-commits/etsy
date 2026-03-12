@@ -1,0 +1,17 @@
+{
+  "success": true,
+  "slug": "test-floral-wreath",
+  "topic": "floral wreath",
+  "product_type": "cutter",
+  "mode": "dalle",
+  "files": [
+    {
+      "size": "XS",
+      "path": "data/products_test/cutter/test-floral-wreath/source/XS.svg",
+      "width_mm": 50.0,
+      "height_mm": 50.0,
+      "shape": "floral",
+      "has_stamp": true
+    }
+  ]
+}

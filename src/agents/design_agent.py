@@ -19,6 +19,9 @@ import logging
 import math
 import os
 import re
+import subprocess
+import tempfile
+import urllib.request
 from pathlib import Path
 from typing import Literal
 
@@ -155,14 +158,15 @@ def _validate_path(path_d: str, size_mm: float) -> tuple[bool, str]:
         return False, f"Subpath count mismatch: {m_count} M commands but {z_count} Z commands — each subpath must end with Z"
 
     # Minimalna liczba punktów współrzędnych
-    coords = re.findall(r"-?\d+\.?\d*\s*,\s*-?\d+\.?\d*", d)
+    # Akceptuj zarówno "x,y" jak i "x y" (format potrace)
+    coords = re.findall(r"-?\d+\.?\d*\s*[,\s]\s*-?\d+\.?\d*", d)
     if len(coords) < 3:
         return False, f"Too few coordinate pairs ({len(coords)}) — need at least 3 for a recognizable shape"
 
     # Sprawdź zakresy współrzędnych
     margin = size_mm * 0.15
     for coord in coords:
-        parts = re.split(r"\s*,\s*", coord.strip())
+        parts = re.split(r"[\s,]+", coord.strip())
         try:
             x, y = float(parts[0]), float(parts[1])
         except (ValueError, IndexError):
@@ -1134,6 +1138,190 @@ def _write_svg(
     }
 
 
+def _make_svg_dalle_potrace(
+    topic: str,
+    product_type: str,
+    size: str,
+    out_path: Path,
+) -> dict:
+    """
+    Pipeline: DALL-E 3 PNG → ImageMagick threshold → potrace → SVG cleanup.
+    Fallback do _make_svg_real jeśli któryś krok zawiedzie.
+    """
+    import openai as _openai
+
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        log.warning("OPENAI_API_KEY not set — falling back to real SVG")
+        return _make_svg_real(topic, product_type, size, out_path)
+
+    size_mm = SIZE_MM.get(size.upper(), 75.0)
+
+    # ── 1. DALL-E 3: generuj PNG ─────────────────────────────────────
+    dalle_prompt = DALLE_PROMPTS.get(topic.lower(), _DALLE_DEFAULT.format(topic=topic))
+
+    try:
+        client_oai = _openai.OpenAI(api_key=api_key)
+        log.info("DALL-E 3: generating image for '%s'", topic)
+        response = client_oai.images.generate(
+            model="dall-e-3",
+            prompt=dalle_prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        image_url = response.data[0].url
+    except Exception as e:
+        log.warning("DALL-E 3 failed (%s) — falling back to real SVG", e)
+        return _make_svg_real(topic, product_type, size, out_path)
+
+    # Zapisz raw PNG do source/ obok SVG (przed przetwarzaniem)
+    raw_png_dest = out_path.parent / f"{out_path.stem}_dalle_raw.png"
+    try:
+        urllib.request.urlretrieve(image_url, raw_png_dest)
+    except Exception as e:
+        log.warning("PNG download failed (%s) — falling back to real SVG", e)
+        return _make_svg_real(topic, product_type, size, out_path)
+    png_path = raw_png_dest
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        bmp_path = tmp_path / "threshold.bmp"
+        svg_raw  = tmp_path / "traced.svg"
+
+        # ── 3. ImageMagick: threshold → czarno-biały BMP ────────────
+        try:
+            subprocess.run(
+                [
+                    "convert", str(png_path),
+                    "-gravity", "Center",
+                    "-crop", "900x900+0+0", "+repage",
+                    "-colorspace", "Gray",
+                    "-white-threshold", "85%",
+                    "-blur", "0x0.6",
+                    "-threshold", "50%",
+                    "-morphology", "Dilate", "Disk:1.0",
+                    "-negate",
+                    "-type", "Bilevel",
+                    str(bmp_path),
+                ],
+                check=True, capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            log.warning("ImageMagick failed (%s) — falling back to real SVG", e.stderr)
+            return _make_svg_real(topic, product_type, size, out_path)
+
+        # ── 4. potrace: BMP → SVG ────────────────────────────────────
+        try:
+            subprocess.run(
+                [
+                    "potrace", str(bmp_path),
+                    "--svg",
+                    "--output", str(svg_raw),
+                    "--turdsize", "20",   # usuń małe szumy
+                    "--alphamax", "1.0",  # gładkie krzywe
+                    "--opttolerance", "0.4",
+                ],
+                check=True, capture_output=True,
+            )
+        except subprocess.CalledProcessError as e:
+            log.warning("potrace failed (%s) — falling back to real SVG", e.stderr)
+            return _make_svg_real(topic, product_type, size, out_path)
+
+        # ── 5. Wyciągnij ścieżki z SVG potrace ──────────────────────
+        raw_svg = svg_raw.read_text(encoding="utf-8")
+
+        # potrace generuje <g transform="translate(0,H) scale(0.1,-0.1)">
+        # Wyciągnij wszystkie ścieżki
+        all_ds = re.findall(r'<path[^>]+\bd="([^"]+)"', raw_svg, re.DOTALL)
+        if not all_ds:
+            log.warning("potrace SVG: no paths found — falling back")
+            return _make_svg_real(topic, product_type, size, out_path)
+
+        # Usuń pierwszą ścieżkę jeśli to ramka tła
+        # (zaczyna się od M0 lub M2 i obejmuje cały canvas)
+        paths_to_use = all_ds
+        if len(all_ds) > 1:
+            first = all_ds[0].strip()
+            if re.match(r'^M\s*\d{1,3}\s+\d{4}', first):
+                paths_to_use = all_ds[1:]
+
+        path_d_raw = " ".join(paths_to_use)
+
+    # potrace viewBox jest w jednostkach pt×10 (transform scale 0.1)
+    # rzeczywisty rozmiar = viewBox / 10
+    vb = re.search(r'viewBox=["\']([^"\']+)["\']', raw_svg)
+    if vb:
+        parts = vb.group(1).split()
+        try:
+            src_w = float(parts[2]) * 10.0
+            src_h = float(parts[3]) * 10.0
+        except (IndexError, ValueError):
+            src_w = src_h = 1024.0
+    else:
+        src_w = src_h = 1024.0
+
+    scale_x = (size_mm * 0.88) / src_w
+    scale_y = (size_mm * 0.88) / src_h
+    offset  = size_mm * 0.06
+
+    def _scale_path(d: str, sx: float, sy: float) -> str:
+        """Skaluje współrzędne SVG path zachowując komendy."""
+        import re as _re
+        tokens = _re.split(r'([MLCQSZHVmlcqszhv])', d)
+        result = []
+        for tok in tokens:
+            tok = tok.strip()
+            if not tok:
+                continue
+            if tok in 'MLCQSZHVmlcqszhv':
+                result.append(tok)
+            else:
+                nums = _re.findall(r'-?\d+\.?\d*(?:e[+-]?\d+)?', tok)
+                scaled = []
+                for i, n in enumerate(nums):
+                    v = float(n)
+                    scaled.append(f'{v * sx:.3f}' if i % 2 == 0 else f'{v * sy:.3f}')
+                result.append(' '.join(scaled))
+        return ' '.join(result)
+
+    path_d = _scale_path(path_d_raw, scale_x, scale_y)
+
+    # ── 7. Zapisz finalny SVG z transformem korygującym y-flip ──────
+    ok, reason = _validate_path(path_d, size_mm)
+    if not ok:
+        log.warning("potrace validation failed (%s) — falling back", reason)
+        return _make_svg_real(topic, product_type, size, out_path)
+
+    stroke_w = max(1.2, 2.2 / max(scale_x, scale_y))
+
+    svg_out = f"""<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="{size_mm}mm" height="{size_mm}mm"
+     viewBox="0 0 {size_mm} {size_mm}">
+  <rect width="{size_mm}mm" height="{size_mm}mm" fill="white"/>
+  <!-- DALL-E 3 + potrace | topic: {topic} | size: {size} -->
+  <g id="outer"
+     transform="translate({offset:.2f},{size_mm - offset:.2f}) scale({scale_x:.6f},{-scale_y:.6f})">
+    <path id="outer_contour"
+          d="{path_d}"
+          fill="none"
+          stroke="#000000"
+          stroke-width="{stroke_w:.3f}"
+          stroke-linecap="round"
+          stroke-linejoin="round"/>
+  </g>
+  <g id="stamp"/>
+</svg>"""
+    out_path.write_text(svg_out, encoding="utf-8")
+    log.info("DALL-E+potrace SVG OK: %s (%.0fmm, %d paths)", out_path, size_mm, len(paths_to_use))
+    return {
+        "size": size, "path": str(out_path),
+        "width_mm": size_mm, "height_mm": size_mm,
+        "shape": "dalle_potrace", "has_stamp": False,
+    }
+
+
 def _make_svg_mock(
     topic: str,
     product_type: str,
@@ -1213,6 +1401,126 @@ SHAPE_HINTS: dict[str, str] = {
         "centered door rectangle, two window squares. Multiple subpaths."
     ),
 }
+
+DALLE_PROMPTS: dict[str, str] = {
+    "floral wreath": (
+        "A flat 2D floral wreath line drawing, "
+        "pure white background, black outline only, NO 3D NO shadow NO shading, "
+        "circular wreath of 8 daisy flowers with 5 rounded petals each, "
+        "thin stem connecting all flowers, clean coloring book style, "
+        "single object centered, no gradients no depth no glow"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "mountain climbing": (
+        "A cute kawaii mountain, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, single mountain peak with rounded top, "
+        "small snow cap, tiny kawaii face with dot eyes, small pine trees on sides, "
+        "zero fill zero color zero shading, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "butterflies": (
+        "A cute kawaii butterfly, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, perfectly symmetrical, "
+        "large rounded upper wings, smaller lower wings, oval body, "
+        "simple antennae, zero fill zero color, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "celestial moon stars": (
+        "A cute kawaii crescent moon with stars, flat 2D design, "
+        "pure white background, thick bold BLACK outline only, "
+        "thick crescent moon shape with kawaii dot eyes, "
+        "3 five-pointed stars of different sizes around it, "
+        "zero fill zero color zero shading, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "cottagecore mushrooms": (
+        "A cute kawaii mushroom, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, wide rounded dome cap, "
+        "short thick stem, 3 circular spots on cap, kawaii dot eyes on stem, "
+        "zero fill zero color, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "hearts romantic": (
+        "A cute kawaii heart shape, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, classic heart with very chubby rounded bumps, "
+        "zero fill zero color zero shading, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "geometric abstract": (
+        "A cute geometric star, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, 6-pointed star with rounded tips, "
+        "inner hexagon decorative outline, zero fill zero color, "
+        "coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "botanical leaves": (
+        "A cute botanical leaf, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, single rounded leaf shape, "
+        "central midrib, 5 curved side veins, slightly asymmetric, "
+        "zero fill zero color, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "christmas snowflake": (
+        "A cute kawaii snowflake, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, 6 identical arms with 2 branches each, "
+        "perfectly symmetrical, zero fill zero color, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "halloween ghost": (
+        "A cute kawaii ghost, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, round dome top, wavy bottom with 3 bumps, "
+        "two large oval eyes, small O mouth, zero fill zero color, "
+        "coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "halloween pumpkin": (
+        "A cute kawaii pumpkin, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, round pumpkin body with 5 vertical segments, "
+        "short stem, triangle eyes, jagged smile, zero fill zero color, "
+        "coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "easter bunny": (
+        "A cute kawaii bunny head, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, round face, two tall oval ears, "
+        "dot eyes, small round nose, zero fill zero color, "
+        "coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "easter egg": (
+        "A cute kawaii easter egg, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, oval egg shape taller than wide, "
+        "zigzag band across middle, small dots above and below band, "
+        "zero fill zero color, coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+    "gingerbread house": (
+        "A cute kawaii gingerbread house, flat 2D design, pure white background, "
+        "thick bold BLACK outline only, square base with triangular roof, "
+        "centered door, two windows, zero fill zero color, "
+        "coloring book style, cookie cutter template, "
+        "pure WHITE background only, single centered object, no other objects no pencils no props"
+        ", NO 3D effect NO drop shadow NO shading NO depth"
+    ),
+}
+_DALLE_DEFAULT = (
+    "{topic} cookie cutter design, flat 2D, pure white background, "
+    "thick bold BLACK outline only, cute kawaii style, "
+    "zero fill zero color zero shading, coloring book template, centered, "
+    "pure WHITE background only, single centered object, no other objects no pencils no props"
+)
 
 
 def _make_svg_real(
@@ -1327,7 +1635,9 @@ Output ONLY the path `d` value — no XML, no quotes, no markdown, no explanatio
 class DesignAgent:
     def __init__(self, mode: str = "mock"):
         self.mode = mode
-        if mode in ("real", "auto"):
+        if mode == "dalle":
+            self._make_svg = _make_svg_dalle_potrace
+        elif mode in ("real", "auto"):
             self._make_svg = _make_svg_real
         else:
             self._make_svg = _make_svg_mock
