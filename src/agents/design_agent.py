@@ -1194,11 +1194,8 @@ def _make_svg_dalle_potrace(
             subprocess.run(
                 [
                     "convert", str(png_path),
-                    "-gravity", "Center",
-                    "-crop", "920x920+0+0", "+repage",
                     "-colorspace", "Gray",
-                    "-blur", "0x0.4",
-                    "-threshold", "60%",
+                    "-threshold", "50%",
                     "-negate",
                     "-type", "Bilevel",
                     str(bmp_path),
@@ -1216,9 +1213,9 @@ def _make_svg_dalle_potrace(
                     "potrace", str(bmp_path),
                     "--svg",
                     "--output", str(svg_raw),
-                    "--turdsize", "40",
+                    "--turdsize", "80",
                     "--alphamax", "1.5",
-                    "--opttolerance", "0.8",
+                    "--opttolerance", "0.5",
                 ],
                 check=True, capture_output=True,
             )
@@ -1404,12 +1401,13 @@ SHAPE_HINTS: dict[str, str] = {
 
 DALLE_PROMPTS: dict[str, str] = {
     "floral wreath": (
-        "A flat 2D floral wreath line drawing, "
-        "pure white background, black outline only, NO 3D NO shadow NO shading, "
-        "circular wreath of 8 daisy flowers with 5 rounded petals each, "
-        "thin stem connecting all flowers, clean coloring book style, "
-        "single object centered, no gradients no depth no glow"
-        ", NO 3D effect NO drop shadow NO shading NO depth"
+        "Black silhouette of a floral wreath on pure white background. "
+        "Solid black filled shapes only. "
+        "8 simple daisy flowers arranged in a circle, each flower = solid black disc "
+        "with 6 rounded petal bumps around it. Small oval leaves between flowers. "
+        "NO white space inside flowers. NO outlines. NO gradients. NO shading. "
+        "NO details. Completely flat graphic. High contrast black on white. "
+        "Like a rubber stamp or paper cut-out."
     ),
     "mountain climbing": (
         "A cute kawaii mountain, flat 2D design, pure white background, "
@@ -1516,10 +1514,9 @@ DALLE_PROMPTS: dict[str, str] = {
     ),
 }
 _DALLE_DEFAULT = (
-    "{topic} cookie cutter design, flat 2D, pure white background, "
-    "thick bold BLACK outline only, cute kawaii style, "
-    "zero fill zero color zero shading, coloring book template, centered, "
-    "pure WHITE background only, single centered object, no other objects no pencils no props"
+    "{topic} black silhouette cookie cutter shape on pure white background. "
+    "Solid black filled shape only, no outlines, no gradients, no shading, "
+    "no internal details. Flat graphic like a rubber stamp. High contrast."
 )
 
 
