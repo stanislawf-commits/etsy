@@ -1243,6 +1243,22 @@ def _make_svg_dalle_potrace(
 
         path_d_raw = " ".join(paths_to_use)
 
+        import re as _re2
+        segments = _re2.findall(r'M[^M]+', path_d_raw)
+        if len(segments) > 1:
+            # Usuń ramkę canvas potrace (segment zaczyna się od M0 = lewa/dolna krawędź)
+            segments = [s for s in segments if not _re2.match(r'^M\s*0[\s,]', s.strip())]
+            if not segments:
+                log.warning("potrace: wszystkie segmenty odfiltrowane — fallback")
+                return _make_svg_real(topic, product_type, size, out_path)
+            # Zachowaj segmenty >= 10% długości najdłuższego
+            segments_sorted = sorted(segments, key=len, reverse=True)
+            threshold = len(segments_sorted[0]) * 0.10
+            main_segs = [s for s in segments_sorted if len(s) >= threshold]
+            path_d_raw = " ".join(main_segs)
+            log.info("subpaths: %d → %d (po usunięciu ramki + próg 10%%)",
+                     len(segments), len(main_segs))
+
     # potrace viewBox jest w jednostkach pt×10 (transform scale 0.1)
     # rzeczywisty rozmiar = viewBox / 10
     vb = re.search(r'viewBox=["\']([^"\']+)["\']', raw_svg)
@@ -1401,13 +1417,11 @@ SHAPE_HINTS: dict[str, str] = {
 
 DALLE_PROMPTS: dict[str, str] = {
     "floral wreath": (
-        "Black silhouette of a floral wreath on pure white background. "
-        "Solid black filled shapes only. "
-        "8 simple daisy flowers arranged in a circle, each flower = solid black disc "
-        "with 6 rounded petal bumps around it. Small oval leaves between flowers. "
-        "NO white space inside flowers. NO outlines. NO gradients. NO shading. "
-        "NO details. Completely flat graphic. High contrast black on white. "
-        "Like a rubber stamp or paper cut-out."
+        "Black silhouette floral wreath on pure white background. "
+        "NO circle, NO oval, NO border, NO frame, NO background shape. "
+        "Only black flowers and leaves on flat white. "
+        "Solid black fills only. No gradients, no shading, no outlines. "
+        "Flat rubber stamp style. Maximum contrast."
     ),
     "mountain climbing": (
         "A cute kawaii mountain, flat 2D design, pure white background, "
