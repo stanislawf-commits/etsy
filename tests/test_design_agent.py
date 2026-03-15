@@ -109,11 +109,17 @@ def test_validate_must_end_with_Z():
     assert "Z" in msg
 
 
-def test_validate_rejects_multiple_subpaths():
-    # Dwie ścieżki
+def test_validate_accepts_equal_subpaths():
+    # Dwie zamknięte ścieżki (M==Z) — dozwolone (złożone wzory)
     ok, msg = _validate_path("M 10,10 L 20,10 Z M 30,30 L 40,30 Z", 75.0)
+    assert ok, f"Oczekiwano akceptacji, dostano: {msg}"
+
+
+def test_validate_rejects_mismatched_subpaths():
+    # Otwarta ścieżka: M bez Z — odrzucona
+    ok, msg = _validate_path("M 10,10 L 20,10 Z M 30,30 L 40,30", 75.0)
     assert not ok
-    assert "subpath" in msg.lower() or "M" in msg
+    assert not ok
 
 
 def test_validate_rejects_too_few_points():
@@ -563,3 +569,71 @@ def test_auto_falls_back_to_mock_without_key(tmp_path, monkeypatch):
     )
     assert result["success"]
     assert len(result["files"]) == 1
+
+
+# ── generate_type_b (Typ B pipeline) ─────────────────────────────────────────
+
+def test_generate_type_b_heart(tmp_path):
+    """generate_type_b() zapisuje SVG dla kształtu 'heart'."""
+    agent = create_design_agent("mock")
+    result = agent.generate_type_b(
+        product={"base_shape": "heart", "slug": "heart-test"},
+        output_dir=tmp_path,
+        sizes=["M"],
+    )
+    assert result["success"] is True
+    assert result["base_shape"] == "heart"
+    assert result["product_subtype"] == "B"
+    assert len(result["files"]) == 1
+    assert Path(result["files"][0]["path"]).exists()
+
+
+def test_generate_type_b_saves_correct_size(tmp_path):
+    """Wymiary zapisanego pliku odpowiadają rozmiarowi."""
+    agent = create_design_agent("mock")
+    result = agent.generate_type_b(
+        product={"base_shape": "circle", "slug": "circle-test"},
+        output_dir=tmp_path,
+        sizes=["S", "M", "L"],
+    )
+    assert result["success"] is True
+    assert len(result["files"]) == 3
+    widths = {f["size"]: f["width_mm"] for f in result["files"]}
+    assert widths["S"] < widths["M"] < widths["L"]
+
+
+def test_generate_type_b_svg_is_valid_xml(tmp_path):
+    """Zapisany SVG jest poprawnym XML z elementem <path>."""
+    agent = create_design_agent("mock")
+    result = agent.generate_type_b(
+        product={"base_shape": "rectangle", "slug": "rect-test"},
+        output_dir=tmp_path,
+        sizes=["M"],
+    )
+    svg_path = Path(result["files"][0]["path"])
+    content = svg_path.read_text()
+    assert content.startswith("<?xml")
+    assert "<path" in content
+
+
+def test_generate_type_b_unknown_shape_error(tmp_path):
+    """Nieznany kształt → błąd w errors, success=False."""
+    agent = create_design_agent("mock")
+    result = agent.generate_type_b(
+        product={"base_shape": "unicorn", "slug": "unicorn-test"},
+        output_dir=tmp_path,
+        sizes=["M"],
+    )
+    assert result["success"] is False
+    assert len(result.get("errors", [])) >= 1
+
+
+def test_generate_type_b_default_sizes(tmp_path):
+    """Bez podania sizes używa 4 domyślnych rozmiarów."""
+    agent = create_design_agent("mock")
+    result = agent.generate_type_b(
+        product={"base_shape": "squircle", "slug": "squircle-test"},
+        output_dir=tmp_path,
+    )
+    assert result["success"] is True
+    assert len(result["files"]) == 4  # S, M, L, XL

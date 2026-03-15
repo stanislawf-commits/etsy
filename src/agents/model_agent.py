@@ -560,7 +560,7 @@ class ModelAgent:
             stamp_poly:   Wymagany gdy product_type='stamp'
         """
         from src.shapes.base_shapes import get_base
-        from src.shapes import affinity  # noqa — sprawdzamy dostępność
+        from shapely import affinity  # noqa
 
         sizes = sizes or _size_mm_map()
         ptypes = [product_type] if product_type else ["cutter"]
