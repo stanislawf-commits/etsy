@@ -413,13 +413,13 @@ Unikalne siluwety (kot, pies, królik itd.):
 |------|--------|-------|
 | A | ✅ | shapely 2.1.2 zainstalowany |
 | B | ✅ | config/base_shapes.yaml — 20 baz, 3 fale |
-| C | ✅ | src/shapes/ — base_shapes, svg_export, scad_export, stamp_elements (stub) |
+| C | ✅ | src/shapes/ — base_shapes, svg_export, scad_export, stamp_elements |
 | D | ✅ | design_agent.py — usunięto DALL-E, dodano generate_type_b() |
 | E | ✅ | model_agent.py — usunięto SVGPathParser, dodano generate_type_b() |
 | F | ✅ | meta.json — pola product_subtype/base_shape/stamp_topic |
 | G | ✅ | orchestrator.py — run_pipeline_type_b() |
 | H | ✅ | cli.py — --subtype B/A, --base <shape>, --sizes S,M,L |
-| I | ✅ | 373 testów passing (test_shapes, test_model_agent, test_design_agent) |
+| I | ✅ | 424 testów passing (test_shapes, test_model_agent, test_design_agent, test_stamp_elements, test_pipeline_type_b) |
 | J | ✅ | Tier 2: scalloped_circle, wavy_square, hexagon, octagon, heart_wide, ghost |
 | K | ✅ | Tier 3: christmas_tree, snowflake, pumpkin, bunny, easter_egg, bell |
 | L | 🟡 | Pierwsze 10 produktów Typ B — w toku |
@@ -517,4 +517,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-15 przez Claude (architect v2) — Faza 9 kroki A-K ukończone: Typ B pipeline działa end-to-end (Shapely 20 kształtów, OpenSCAD STL, CLI --subtype B, 373 testów passing)*
+*Ostatnia aktualizacja: 2026-03-15 przez Claude (architect v2) — Faza 9 kroki A-K ukończone + stamp_elements.py (plan_stamp/build_relief/mock_plan/10 element types) + test_stamp_elements.py (36 testów) + test_pipeline_type_b.py (15 testów integracyjnych). 424 testów passing.*
