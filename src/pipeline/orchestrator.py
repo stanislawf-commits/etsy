@@ -3,6 +3,11 @@ orchestrator.py - łączy TrendAgent i ListingAgent w jeden pipeline.
 
 Funkcja run_pipeline() prowadzi produkt od tematu do gotowego listingu
 i zapisuje listing.json + meta.json w data/products/{slug}/.
+
+Funkcja run_pipeline_type_b() obsługuje Typ B (standardowa baza Shapely):
+    - design_agent.generate_type_b() → SVG podglądy
+    - model_agent.generate_type_b() × N rozmiarów → STL pliki
+    - meta.json z polami: product_subtype="B", base_shape, stamp_topic
 """
 import logging
 import uuid
@@ -15,7 +20,7 @@ from rich.table import Table
 
 from src.agents import trend_agent, listing_agent
 from src.agents.design_agent import create_design_agent
-from src.agents.model_agent import create_model_agent
+from src.agents.model_agent import create_model_agent, _size_mm_map
 from src.utils.printability_validator import validate_svg
 from src.utils.product_io import DATA_DIR, ensure_product_dir, save_meta, save_listing
 
@@ -212,4 +217,169 @@ def run_pipeline(
         "models":           model_result,
         "stl_files":        stl_files,
         "renders":          render_result,
+    }
+
+
+# ── Typ B pipeline ────────────────────────────────────────────────────────────
+
+_DEFAULT_SIZES_B = ["S", "M", "L"]
+
+
+def run_pipeline_type_b(
+    topic: str | None = None,
+    base_shape: str = "heart",
+    sizes: list[str] | None = None,
+    stamp_topic: str | None = None,
+    product_type: str = "cutter",
+) -> dict:
+    """
+    Pipeline Typ B — standardowa baza Shapely.
+
+    Schemat meta.json:
+        product_subtype: "B"
+        base_shape:      np. "heart"
+        stamp_topic:     opcjonalny temat wzoru stempla (tylko dla stamp)
+
+    Args:
+        topic:        Temat listingu. Jeśli None — TrendAgent dobierze.
+        base_shape:   Nazwa kształtu bazy (z config/base_shapes.yaml).
+        sizes:        Lista rozmiarów (default ["S","M","L"]).
+        stamp_topic:  Opcjonalny temat wzoru stempla.
+        product_type: "cutter" | "stamp" (stamp wymaga stamp_topic).
+
+    Returns:
+        dict z kluczami: slug, title, price_suggestion, tags, status, stl_files
+    """
+    from src.shapes.base_shapes import get_base
+    from shapely import affinity
+
+    sizes = sizes or _DEFAULT_SIZES_B
+    size_map = {k: v for k, v in _size_mm_map().items() if k in sizes}
+
+    # ── 1. Temat ─────────────────────────────────────────────────────────────
+    if topic is None:
+        suggestions = trend_agent.suggest()
+        topic = suggestions[0]["topic"]
+        console.print(f"[cyan]TrendAgent wybrał:[/cyan] [bold]{topic}[/bold]")
+
+    console.print(
+        f"\n[bold]Pipeline Typ B:[/bold] topic=[cyan]{topic}[/cyan]"
+        f"  base=[cyan]{base_shape}[/cyan]  sizes=[cyan]{','.join(sizes)}[/cyan]\n"
+    )
+
+    # ── 2. Listing ────────────────────────────────────────────────────────────
+    with console.status("[bold green]Generuję listing (Claude API)...[/bold green]"):
+        listing = listing_agent.generate(topic, product_type, "M")
+
+    slug = listing["slug"]
+    product_dir = ensure_product_dir(slug, product_type)
+
+    save_listing(slug, listing, product_type=product_type)
+
+    meta = {
+        "id":              str(uuid.uuid4()),
+        "slug":            slug,
+        "topic":           topic,
+        "product_type":    product_type,
+        "product_subtype": "B",
+        "base_shape":      base_shape,
+        "stamp_topic":     stamp_topic,
+        "status":          "draft",
+        "created_at":      datetime.now(timezone.utc).isoformat(),
+    }
+    save_meta(slug, meta, product_type=product_type)
+
+    # ── 3. Design (SVG podglądy) ──────────────────────────────────────────────
+    design_result: dict = {"success": False, "files": [], "mode": "skipped"}
+    with console.status("[bold green]Generuję SVG (DesignAgent Typ B)...[/bold green]"):
+        try:
+            design_agent = create_design_agent("auto")
+            design_result = design_agent.generate_type_b(
+                product={"base_shape": base_shape, "slug": slug},
+                output_dir=DATA_DIR / product_type,
+                sizes=sizes,
+            )
+            log.info("DesignAgent Typ B: success=%s files=%d",
+                     design_result.get("success"), len(design_result.get("files", [])))
+        except Exception as exc:
+            log.warning("DesignAgent Typ B failed: %s", exc)
+            design_result = {"success": False, "files": [], "mode": "error", "error": str(exc)}
+
+    # ── 4. Model (STL) ────────────────────────────────────────────────────────
+    stl_files: list[str] = []
+    size_results: dict   = {}
+
+    with console.status("[bold green]Generuję STL (ModelAgent Typ B)...[/bold green]"):
+        try:
+            model_agent = create_model_agent("auto")
+            ref_mm      = size_map.get("M") or next(iter(size_map.values()))
+            base_poly   = get_base(base_shape, ref_mm)
+            models_dir  = product_dir / "models"
+            models_dir.mkdir(parents=True, exist_ok=True)
+
+            for size_key, size_mm in size_map.items():
+                sc = size_mm / ref_mm
+                poly = affinity.scale(base_poly, xfact=sc, yfact=sc, origin=(0, 0))
+                r = model_agent.generate_type_b(
+                    base_poly=poly,
+                    size_mm=size_mm,
+                    product_type=product_type,
+                    output_dir=models_dir,
+                    size_key=size_key,
+                )
+                size_results[size_key] = r
+                if r.get("valid") and r.get("stl_path"):
+                    stl_files.append(r["stl_path"])
+                    log.info("STL OK: %s  n_tri=%s", r["stl_path"], r.get("n_triangles"))
+                else:
+                    log.warning("STL failed: size=%s error=%s", size_key, r.get("error"))
+        except Exception as exc:
+            log.warning("ModelAgent Typ B failed: %s", exc)
+
+    # ── 5. Aktualizacja meta.json ─────────────────────────────────────────────
+    design_ok = design_result.get("success", False)
+    models_ok = len(stl_files) > 0
+
+    pipeline_status = (
+        "ready_for_render" if (design_ok and models_ok) else
+        "design_error"     if not design_ok else
+        "model_error"
+    )
+
+    meta["design"] = {"mode": "shapely", "success": design_ok}
+    meta["models"] = {
+        "success":   models_ok,
+        "sizes":     list(size_results.keys()),
+        "stl_count": len(stl_files),
+    }
+    meta["status"] = pipeline_status
+    save_meta(slug, meta, product_type=product_type)
+
+    # ── 6. Podsumowanie ───────────────────────────────────────────────────────
+    table = Table(show_header=False, box=None, padding=(0, 1))
+    table.add_column("Klucz", style="dim", min_width=16)
+    table.add_column("Wartość")
+
+    table.add_row("Slug",       f"[bold]{slug}[/bold]")
+    table.add_row("Tytuł",      listing.get("title", "–"))
+    table.add_row("Cena",       f"[green]{listing.get('price_suggestion', '–')} EUR[/green]")
+    table.add_row("Baza",       f"[cyan]{base_shape}[/cyan]")
+    table.add_row("Rozmiary",   ", ".join(sizes))
+    svg_n = len(design_result.get("files", []))
+    table.add_row("SVG",        f"[{'green' if design_ok else 'red'}]{svg_n} plików[/]")
+    table.add_row("STL",        f"[{'green' if models_ok else 'red'}]{len(stl_files)} plików[/]")
+    sc = "green" if pipeline_status == "ready_for_render" else "yellow"
+    table.add_row("Status",     f"[{sc}]{pipeline_status}[/{sc}]")
+
+    console.print(Panel(table, title="[bold green]Pipeline Typ B — zakończony[/bold green]", expand=False))
+
+    return {
+        "slug":             slug,
+        "title":            listing.get("title"),
+        "price_suggestion": listing.get("price_suggestion"),
+        "tags":             listing.get("tags", []),
+        "status":           pipeline_status,
+        "design":           design_result,
+        "stl_files":        stl_files,
+        "sizes":            size_results,
     }

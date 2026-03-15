@@ -63,18 +63,65 @@ def health():
 @click.option("--type", "-t", "product_type", default="cutter", show_default=True,
               help="Typ produktu: cutter | stamp | set")
 @click.option("--size", "-s", default="M", show_default=True,
-              help="Rozmiar: XS | S | M | L | XL")
+              help="Rozmiar: XS | S | M | L | XL  (dla Typ A)")
 @click.option("--batch", "-b", default=1, type=click.IntRange(1, 50), show_default=True,
               help="Uruchom pipeline N razy (TrendAgent dobiera tematy automatycznie)")
 @click.option("--topics", default=None,
               help="Lista tematów rozdzielona przecinkami dla trybu batch (np. 'cat,dog,bear')")
-def new_product(name, product_type, size, batch, topics):
+@click.option("--subtype", "-S", default=None, type=click.Choice(["A", "B"]),
+              help="Subtyp produktu: A (unikalna silueta) | B (standardowa baza Shapely)")
+@click.option("--base", default="heart", show_default=True,
+              help="Kształt bazy dla Typ B (np. heart, circle, star5)")
+@click.option("--sizes", "sizes_b", default="S,M,L", show_default=True,
+              help="Rozmiary dla Typ B — lista rozdzielona przecinkami (np. S,M,L)")
+def new_product(name, product_type, size, batch, topics, subtype, base, sizes_b):
     """Tworzy nowy produkt przez pelny pipeline (listing + SVG + STL).
 
     NAME to temat produktu (opcjonalne - jesli pominienty, TrendAgent dobierze temat).
     Z opcja --batch N uruchamia pipeline N razy bez podawania NAME.
     Z opcja --topics 'cat,dog,bear' uruchamia pipeline dla podanych tematow.
+
+    Typ B (--subtype B):
+        python cli.py new-product "Floral Wreath" --subtype B --base heart
+        python cli.py new-product --subtype B --base circle --sizes S,M,L,XL
     """
+    # ── Typ B ─────────────────────────────────────────────────────────────────
+    if subtype == "B":
+        from src.pipeline.orchestrator import run_pipeline_type_b
+        sizes_list = [s.strip().upper() for s in sizes_b.split(",") if s.strip()]
+        if not sizes_list:
+            console.print("[red]Błąd: --sizes nie może być pusty.[/red]")
+            sys.exit(1)
+        try:
+            result = run_pipeline_type_b(
+                topic=name,
+                base_shape=base,
+                sizes=sizes_list,
+                product_type=product_type,
+            )
+        except Exception as e:
+            console.print(f"[bold red]Błąd pipeline Typ B:[/bold red] {e}")
+            sys.exit(1)
+
+        slug   = result.get("slug", "?")
+        status = result.get("status", "unknown")
+        prod_dir = DATA_DIR / product_type / slug
+
+        stl_files = list((prod_dir / "models").glob("*.stl")) if (prod_dir / "models").exists() else []
+        svg_files = list((prod_dir / "source").glob("*.svg")) if (prod_dir / "source").exists() else []
+
+        console.print(f"  [green]✓[/green] Slug:    [bold]{slug}[/bold]")
+        _ok = "[green]✓[/green]"
+        _no = "[yellow]![/yellow]"
+        console.print(f"  {_ok if svg_files else _no} SVG:     {len(svg_files)} plików")
+        console.print(f"  {_ok if stl_files else _no} STL:     {len(stl_files)} plików")
+        sc = "green" if status in ("ready_for_render", "ready_for_publish") else "yellow"
+        console.print(f"  Status:  [{sc}]{status}[/{sc}]")
+        if status not in ("ready_for_render", "ready_for_publish"):
+            sys.exit(1)
+        return
+
+    # ── Typ A / domyślny ──────────────────────────────────────────────────────
     from src.pipeline.orchestrator import run_pipeline
 
     # Parsuj --topics jeśli podano
@@ -92,7 +139,7 @@ def new_product(name, product_type, size, batch, topics):
         sys.exit(1)
 
     if batch == 1 and not topic_list:
-        # ── Tryb pojedynczy (istniejące zachowanie) ──
+        # ── Tryb pojedynczy ──
         try:
             result = run_pipeline(topic=name, product_type=product_type, size=size)
         except Exception as e:
@@ -101,29 +148,29 @@ def new_product(name, product_type, size, batch, topics):
 
         slug   = result.get("slug", "?")
         status = result.get("status", "unknown")
-        base   = DATA_DIR / slug
+        base_p = DATA_DIR / slug
 
-        listing_path = base / "listing.json"
+        listing_path = base_p / "listing.json"
         if listing_path.exists():
             console.print(f"  [green]✓[/green] Listing:  {listing_path}")
         else:
             console.print(f"  [yellow]![/yellow] Listing:  brak")
 
-        source_dir = base / "source"
+        source_dir = base_p / "source"
         svg_files  = list(source_dir.glob("*.svg")) if source_dir.exists() else []
         if svg_files:
             console.print(f"  [green]✓[/green] SVG:      {source_dir} ({len(svg_files)} pliki)")
         else:
             console.print(f"  [yellow]![/yellow] SVG:      brak plikow w {source_dir}")
 
-        models_dir = base / "models"
+        models_dir = base_p / "models"
         stl_files  = list(models_dir.glob("*.stl")) if models_dir.exists() else []
         if stl_files:
             console.print(f"  [green]✓[/green] STL:      {models_dir} ({len(stl_files)} pliki)")
         else:
             console.print(f"  [yellow]![/yellow] STL:      brak plikow w {models_dir}")
 
-        renders_dir  = base / "renders"
+        renders_dir  = base_p / "renders"
         render_files = list(renders_dir.glob("*.jpg")) if renders_dir.exists() else []
         if render_files:
             console.print(f"  [green]✓[/green] Renders:  {renders_dir} ({len(render_files)} pliki)")
