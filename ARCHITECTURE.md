@@ -218,6 +218,210 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 | `auto` | Claude→mock | real jeśli ANTHROPIC_API_KEY dostępny |
 | `dalle` | DALL-E+potrace | DALL-E 3 PNG → ImageMagick → potrace → SVG |
 
+### Faza 9 — Typ B Pipeline: Standard Base + AI Stamp 🔴 PLANOWANA (od 2026-03-15)
+
+> Decyzja architektoniczna: porzucamy DALL-E+potrace (Faza 8) na rzecz czystej
+> geometrii Python (Shapely) jako źródła prawdy. SVG = artefakt podglądu.
+> STL generowany z OpenSCAD polygon() — nie z import(svg).
+
+#### Kontekst biznesowy
+- Skala: 2-5k produktów
+- Typ B = 80%+ oferty: standardowy cutter (baza) + unikalny wzór stempla
+- Strategia topowych sprzedawców Etsy: N wzorów × M baz × 6 rozmiarów = N×M×6 listingów
+
+#### Pipeline Typ B
+
+```
+[topic] ──→ Claude JSON plan ──→ Shapely relief polygon
+                │
+[base_shape] ──→ Shapely base polygon ──→ OpenSCAD polygon() ──→ cutter STL
+                                       ──→ OpenSCAD polygon() ──→ stamp STL
+                                       ──→ SVG (preview/Etsy)
+```
+
+#### Krok A — Zależności i środowisko
+
+- [ ] `pip install shapely` (jest w requirements.txt, brak w venv)
+- [ ] Weryfikacja: `python -c "import shapely; print(shapely.__version__)"`
+- [ ] Weryfikacja OpenSCAD: `openscad --version` (✅ 2021.01)
+- [ ] Usunąć `openai` z requirements.txt (DALL-E nie będzie używany)
+
+#### Krok B — config/base_shapes.yaml
+
+20 standardowych baz (3 fale wdrożenia) z metadanymi:
+- Tier 1/Core (8): heart, circle, rectangle, squircle, star5, arch, oval, cloud
+- Tier 2/Variant (6): scalloped_circle, wavy_square, hexagon, octagon, heart_wide, ghost
+- Tier 3/Seasonal (6): christmas_tree, snowflake, pumpkin, bunny, easter_egg, bell
+
+Pola per shape: `label`, `tier`, `seasonal`, `peak_months`, `canvas_ratio`,
+`openscad_module`, `etsy_search_volume`, `aspect_ratio` (opt), `corner_radius_ratio` (opt)
+
+#### Krok C — src/shapes/ (nowy moduł)
+
+```
+src/shapes/
+  __init__.py          ← eksport publicznego API
+  base_shapes.py       ← 20 funkcji → Shapely Polygon; get_base(name, size_mm)
+  svg_export.py        ← Shapely Polygon → SVG (preview, nie do OpenSCAD)
+  scad_export.py       ← Shapely Polygon → OpenSCAD polygon() → STL via CLI
+  stamp_elements.py    ← Claude JSON → Shapely MultiPolygon (relief)
+```
+
+**base_shapes.py** — publiczne API:
+```python
+get_base(name: str, size_mm: float) -> shapely.Polygon
+list_bases(tier: int | None = None) -> list[str]
+```
+
+**scad_export.py** — publiczne API:
+```python
+cutter_stl(base: Polygon, size_mm: float, cfg: dict, out: Path) -> Path
+stamp_stl(base: Polygon, relief: MultiPolygon, size_mm: float, cfg: dict, out: Path) -> Path
+```
+
+**svg_export.py** — publiczne API:
+```python
+base_to_svg(base: Polygon, size_mm: float, out: Path, title: str = "") -> Path
+```
+
+**stamp_elements.py** — publiczne API:
+```python
+plan_stamp(topic: str, base: Polygon, client) -> dict  # Claude → JSON
+build_relief(plan: dict, base: Polygon) -> MultiPolygon
+```
+
+#### Krok D — Refactor design_agent.py
+
+**Usunąć:**
+- tryb `dalle` + cała funkcja `_make_svg_dalle_potrace()` (~300 linii)
+- tryb `real` + `_make_svg_real()` (Claude generujący SVG path d=)
+- `DALLE_PROMPTS`, `SHAPE_HINTS` słowniki
+- `_validate_path()` (nie potrzebna)
+- `_stamp_elements_mock()` → przeniesiona do `src/shapes/stamp_elements.py`
+- `_path_*` funkcje (31 kształtów) → zastąpione przez `src/shapes/base_shapes.py`
+
+**Zachować/przepisać:**
+- `DesignAgent` klasa z nowym API
+- `generate(topic, product_type, sizes, output_dir)` — ta sama sygnatura
+- tryb `mock` → używa `base_shapes.get_base()` + `svg_export.base_to_svg()`
+- tryb `real` (Typ B) → Claude planuje JSON stamp, Python buduje geometrię
+
+**Nowe tryby design_agent:**
+| mode | opis |
+|------|------|
+| `mock` | Shapely base + pusty relief (testy/CI) |
+| `typeB` | Shapely base + Claude JSON stamp (produkcja) |
+| `auto` | `typeB` jeśli ANTHROPIC_API_KEY, inaczej `mock` |
+
+#### Krok E — Refactor model_agent.py
+
+**Usunąć:**
+- `SVGPathParser` klasa — nie parsujemy już SVG do STL
+- `OpenSCADGenerator._scad_cutter` z `import(svg)` — zastąpiony przez `scad_export.py`
+- `OpenSCADGenerator._scad_stamp` z `import(svg)` — j.w.
+- `PurePythonSTLWriter` — zastąpiony przez OpenSCAD via `scad_export.py`
+- `_generate_via_openscad()` z svg_path param
+
+**Zachować:**
+- `STLValidator` — walidacja trimesh (watertight, volume)
+- `ModelAgent` klasa z tym samym publicznym API
+- `generate_all(slug, product_type, sizes, source_dir, output_dir)` — ta sama sygnatura
+
+**Przepisać:**
+```python
+# Nowy przepływ w ModelAgent.generate_all():
+base = base_shapes.get_base(meta["base_shape"], size_mm)
+cutter_path = scad_export.cutter_stl(base, size_mm, cfg, out_dir/f"{size}_cutter.stl")
+stamp_path  = scad_export.stamp_stl(base, relief, size_mm, cfg, out_dir/f"{size}_stamp.stl")
+```
+
+#### Krok F — Schema meta.json (nowe pola)
+
+```json
+{
+  "product_subtype": "B",
+  "base_shape": "heart",
+  "stamp_topic": "floral wreath",
+  "stamp_plan": { ... }
+}
+```
+
+Aktualizacja `src/utils/product_io.py` — brak zmian API (backward compatible).
+
+#### Krok G — Update orchestrator.py
+
+- Nowy krok pipeline: `design_step` wywołuje `design_agent.generate()` z `base_shape`
+- `base_shape` odczytywane z `meta["base_shape"]` (ustawiane przy `new-product`)
+- Jeśli brak `base_shape` → domyślnie `heart`
+- `model_step` używa nowego `ModelAgent` bez SVG path
+
+#### Krok H — Update CLI (cli.py)
+
+Nowe opcje `new-product`:
+```bash
+python cli.py new-product "Floral Wreath" --subtype B --base heart
+python cli.py new-product "Floral Wreath" --subtype B --base circle
+python cli.py new-product --topics "cat,dog,bear" --subtype B --base heart
+```
+
+Update `list`:
+- Dodać kolumnę `Base` w tabeli produktów
+- `status` wyświetla `base_shape` + `stamp_topic`
+
+#### Krok I — Testy
+
+```
+tests/
+  test_base_shapes.py      ← get_base() dla 8 Fala 1 shapes; rozmiary XS-XXXL
+  test_svg_export.py       ← SVG walidacja (closed paths, viewBox, wymiary)
+  test_scad_export.py      ← .scad syntax; OpenSCAD CLI generuje STL; trimesh OK
+  test_stamp_elements.py   ← mock plan → MultiPolygon; Claude mock → JSON parseable
+  test_design_agent.py     ← update (usunąć dalle/real testy, dodać typeB/mock)
+  test_model_agent.py      ← update (usunąć SVGPathParser testy)
+```
+
+#### Krok J — Fala 2 shapes (6 dodatkowych)
+
+Po ustabilizowaniu Fali 1:
+`scalloped_circle`, `wavy_square`, `hexagon`, `octagon`, `heart_wide`, `ghost`
+
+Każdy: funkcja w `base_shapes.py` + metadane w `base_shapes.yaml` + testy.
+
+#### Krok K — Fala 3 seasonal (6 shapes)
+
+Przed sezonem (Q3 2026):
+`christmas_tree`, `snowflake`, `pumpkin`, `bunny`, `easter_egg`, `bell`
+
+#### Krok L — Pierwsze produkty Typ B (10 produktów)
+
+```bash
+python cli.py new-product "Floral Wreath" --subtype B --base heart
+python cli.py new-product "Floral Wreath" --subtype B --base circle
+# ...itd. — ten sam wzór, różne bazy = 3-5 listingów per wzór
+```
+
+#### Krok M — Typ A pipeline (future)
+
+Unikalne siluwety (kot, pies, królik itd.):
+- `base_shapes.py` obsługuje Typ A przez `get_typeA_silhouette(topic, size_mm)`
+- Claude JSON → bardziej złożone komponenty (głowa + uszy + itd.)
+- Osobne zadanie po ustabilizowaniu Typ B
+
+#### Kolejność implementacji (sprinty)
+
+| Sprint | Kroki | Czas | Efekt |
+|--------|-------|------|-------|
+| 9.1 | A + B | sesja 1 | Shapely + config gotowy |
+| 9.2 | C (base_shapes + svg_export) | sesja 2 | 8 kształtów generuje SVG |
+| 9.3 | C (scad_export + stamp_elements) | sesja 3 | OpenSCAD STL bez SVG pośredniego |
+| 9.4 | D + E (refactor agentów) | sesja 4 | Stary kod zastąpiony |
+| 9.5 | F + G + H (meta, orchestrator, CLI) | sesja 5 | End-to-end pipeline Typ B |
+| 9.6 | I (testy) | sesja 6 | CI green |
+| 9.7 | J + K (Fala 2 + 3) | sesja 7-8 | 20 baz gotowych |
+| 9.8 | L (pierwsze produkty) | sesja 9 | 10 listingów gotowych do Etsy |
+
+---
+
 ### Faza 6 — Produkcyjna jakość SVG + STL 🟡 W TOKU (od 2026-03-11)
 > Pełna specyfikacja: `docs/svg_stl_pipeline.md`
 > Plan sprintów: `docs/ROADMAP_PHASE6.md`
@@ -308,4 +512,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-12 przez Claude (architect v2) — Faza 8 v11: design_agent canvas-frame fix + model_agent OpenSCAD import(svg) TYP A/B; pipeline SVG→STL watertight ✅*
+*Ostatnia aktualizacja: 2026-03-15 przez Claude (architect v2) — Faza 9: plan Typ B pipeline (Shapely geometry engine, 20 standard base shapes, bez DALL-E/potrace/import(svg))*

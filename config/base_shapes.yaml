@@ -1,0 +1,258 @@
+# base_shapes.yaml — Standardowe bazy dla produktów Typ B
+#
+# canvas_ratio: % powierzchni bazowego kwadratu dostępnej dla stempla (wyżej = lepiej)
+# aspect_ratio: width/height (tylko dla niekvadratowych kształtów)
+# corner_radius_ratio: r = size_mm * corner_radius_ratio (dla zaokrąglonych kształtów)
+# etsy_search_volume: very_high / high / medium / low (szacunkowy)
+# peak_months: miesiące szczytowe (1=styczeń, 12=grudzień), [] = rok okrągły
+#
+# Fale wdrożenia:
+#   tier: 1 = Fala 1 (pierwsze 8, implementowane najpierw)
+#   tier: 2 = Fala 2 (warianty, po ustabilizowaniu Fali 1)
+#   tier: 3 = Fala 3 (sezonowe, dodawane przed sezonem Q3/Q4 2026)
+
+base_shapes:
+
+  # ── TIER 1 — CORE (Fala 1) ──────────────────────────────────────────────────
+
+  heart:
+    label: "Heart"
+    tier: 1
+    seasonal: false
+    peak_months: [1, 2, 11, 12]   # Valentine's, Boże Narodzenie
+    canvas_ratio: 0.72
+    corner_radius_ratio: null
+    aspect_ratio: 1.0
+    etsy_search_volume: very_high
+    notes: "#1 na każdej platformie. Rok okrągły, peak Valentine's + ślub."
+
+  circle:
+    label: "Circle"
+    tier: 1
+    seasonal: false
+    peak_months: []
+    canvas_ratio: 0.78
+    corner_radius_ratio: null
+    aspect_ratio: 1.0
+    etsy_search_volume: very_high
+    notes: "Najbardziej universalny. Najlepsza baza dla okrągłych wzorów (mandala, monogram)."
+
+  rectangle:
+    label: "Rectangle Plaque"
+    tier: 1
+    seasonal: false
+    peak_months: [5, 6, 11, 12]   # wesela, Boże Narodzenie
+    canvas_ratio: 0.85             # największe pole dla stempla
+    corner_radius_ratio: 0.06      # delikatne zaokrąglenie rogów
+    aspect_ratio: 1.4              # width/height = 1.4 (szeroki prostokąt)
+    etsy_search_volume: high
+    notes: "Największy canvas dla detali. Dominuje w segmencie wedding/event i napisów."
+
+  squircle:
+    label: "Rounded Square"
+    tier: 1
+    seasonal: false
+    peak_months: []
+    canvas_ratio: 0.82
+    corner_radius_ratio: 0.18      # r = size_mm * 0.18 (charakterystyczne zaokrąglenie)
+    aspect_ratio: 1.0
+    etsy_search_volume: high
+    notes: "Brighton Cutters: named bestseller category ('squirkle'). Modern aesthetic."
+
+  star5:
+    label: "Star 5-pointed"
+    tier: 1
+    seasonal: false                # rok okrągły, ale z silnym pikiem świątecznym
+    peak_months: [10, 11, 12]
+    canvas_ratio: 0.60
+    corner_radius_ratio: 0.03      # lekko zaokrąglone czubki
+    aspect_ratio: 1.0
+    etsy_search_volume: very_high
+    notes: "Google Trends 2025: #1 kształt świąteczny (US West, Southwest, Southeast)."
+
+  arch:
+    label: "Arch / Rounded Rectangle"
+    tier: 1
+    seasonal: false
+    peak_months: [5, 6, 7]        # sezon ślubny
+    canvas_ratio: 0.80
+    corner_radius_ratio: null      # górne rogi w pełni zaokrąglone (półkole), dół płaski
+    aspect_ratio: 0.75             # wyższy niż szerszy (portretowy)
+    etsy_search_volume: high
+    notes: "Najszybciej rosnący 2024-2025. Confection Couture bestseller. Bridal/event."
+
+  oval:
+    label: "Oval"
+    tier: 1
+    seasonal: false
+    peak_months: [3, 4]           # Wielkanoc
+    canvas_ratio: 0.76
+    corner_radius_ratio: null
+    aspect_ratio: 0.72             # wyższy niż szerszy (jajko/portret)
+    etsy_search_volume: high
+    notes: "Easter peak. Także: portrety, etykiety, medaliony."
+
+  cloud:
+    label: "Cloud"
+    tier: 1
+    seasonal: false
+    peak_months: [3, 4, 5]        # baby shower, wiosna
+    canvas_ratio: 0.68
+    corner_radius_ratio: null      # generowana jako zbiór nakładających się kół
+    aspect_ratio: 1.6              # szeroka chmurka
+    etsy_search_volume: high
+    notes: "Kids, nursery, baby shower. Wysoki demand. Unikalna sylwetka."
+
+  # ── TIER 2 — WARIANTY (Fala 2) ──────────────────────────────────────────────
+
+  scalloped_circle:
+    label: "Scalloped Circle"
+    tier: 2
+    seasonal: false
+    peak_months: []
+    canvas_ratio: 0.72
+    corner_radius_ratio: null
+    scallop_count: 12              # liczba "płatków" na obwodzie
+    aspect_ratio: 1.0
+    etsy_search_volume: high
+    notes: "Etsy top search. Elegancki wariant koła. Styl vintage/floral."
+
+  wavy_square:
+    label: "Wavy Square (Ribbon)"
+    tier: 2
+    seasonal: false
+    peak_months: []
+    canvas_ratio: 0.75
+    corner_radius_ratio: null
+    wave_amplitude_ratio: 0.06    # amplituda fali = size_mm * 0.06
+    wave_count: 3                 # fale per strona
+    aspect_ratio: 1.0
+    etsy_search_volume: high
+    notes: "Falisty kwadrat / wstążka. Brighton Cutters bestseller. Nowoczesny styl."
+
+  hexagon:
+    label: "Hexagon"
+    tier: 2
+    seasonal: false
+    peak_months: [3]              # Purim (marzec), geometric trend rok okrągły
+    canvas_ratio: 0.78
+    corner_radius_ratio: 0.04
+    aspect_ratio: 1.0
+    etsy_search_volume: medium
+    notes: "Geometric/modern trend. Ann Clark: Purim spike. Honeycomb variants."
+
+  octagon:
+    label: "Octagon"
+    tier: 2
+    seasonal: false
+    peak_months: []
+    canvas_ratio: 0.80
+    corner_radius_ratio: 0.03
+    aspect_ratio: 1.0
+    etsy_search_volume: medium
+    notes: "Confection Couture: foundational shape. Elegant plaque alternative."
+
+  heart_wide:
+    label: "Wide Heart (Stamp Base)"
+    tier: 2
+    seasonal: false
+    peak_months: [1, 2]
+    canvas_ratio: 0.78            # szerszy margines = więcej miejsca dla stempla
+    corner_radius_ratio: null
+    aspect_ratio: 1.15            # szerszy niż standardowe serce
+    etsy_search_volume: medium
+    notes: "Wariant serca z większym canvas dla złożonych wzorów stempla."
+
+  ghost:
+    label: "Ghost"
+    tier: 2
+    seasonal: true
+    peak_months: [9, 10]
+    canvas_ratio: 0.65
+    corner_radius_ratio: null
+    aspect_ratio: 0.85
+    etsy_search_volume: high
+    notes: "Halloween #2 po dyni. Unikalny kształt z dużą rozpoznawalnością."
+
+  # ── TIER 3 — SEZONOWE (Fala 3) ──────────────────────────────────────────────
+
+  christmas_tree:
+    label: "Christmas Tree"
+    tier: 3
+    seasonal: true
+    peak_months: [10, 11, 12]
+    canvas_ratio: 0.65
+    corner_radius_ratio: 0.04
+    aspect_ratio: 0.70            # wyższy niż szerszy
+    etsy_search_volume: very_high
+    notes: "Google Trends 2025: #2 Boże Narodzenie (US Northwest, Midwest)."
+
+  snowflake:
+    label: "Snowflake"
+    tier: 3
+    seasonal: true
+    peak_months: [10, 11, 12]
+    canvas_ratio: 0.60
+    corner_radius_ratio: null
+    arms: 6                       # 6-ramienna śnieżynka
+    aspect_ratio: 1.0
+    etsy_search_volume: very_high
+    notes: "Google Trends 2025: dominuje Alaska, WA, TX. Boże Narodzenie + zima."
+
+  pumpkin:
+    label: "Pumpkin"
+    tier: 3
+    seasonal: true
+    peak_months: [8, 9, 10]
+    canvas_ratio: 0.68
+    corner_radius_ratio: null
+    segments: 5                   # pionowe segmenty dyni
+    aspect_ratio: 1.0
+    etsy_search_volume: very_high
+    notes: "Halloween #1. Peak sierpień-październik. Silny brand."
+
+  bunny:
+    label: "Easter Bunny"
+    tier: 3
+    seasonal: true
+    peak_months: [2, 3, 4]
+    canvas_ratio: 0.62
+    corner_radius_ratio: null
+    aspect_ratio: 0.65            # wyższy przez uszy
+    etsy_search_volume: high
+    notes: "Ann Clark: top seller Easter. Wielkanoc (luty-kwiecień)."
+
+  easter_egg:
+    label: "Easter Egg"
+    tier: 3
+    seasonal: true
+    peak_months: [2, 3, 4]
+    canvas_ratio: 0.74
+    corner_radius_ratio: null
+    aspect_ratio: 0.72
+    etsy_search_volume: high
+    notes: "Wielkanoc. Dobry canvas dla wzorów dekoracyjnych."
+
+  bell:
+    label: "Bell"
+    tier: 3
+    seasonal: true
+    peak_months: [11, 12, 5, 6]  # Boże Narodzenie + śluby
+    canvas_ratio: 0.65
+    corner_radius_ratio: 0.05
+    aspect_ratio: 0.85
+    etsy_search_volume: high
+    notes: "Boże Narodzenie + śluby. Podwójny peak."
+
+# ── Globalne domyślne parametry STL ──────────────────────────────────────────
+#
+# Używane przez scad_export.py gdy brak override per-shape.
+
+stl_defaults:
+  wall_thick_mm: 1.8             # grubość ścianki cuttera
+  total_height_mm: 12.0          # wysokość całkowita cuttera
+  base_thick_mm: 3.0             # grubość podstawy stempla
+  relief_height_mm: 2.0          # wysokość reliefu stempla
+  cutting_edge_mm: 0.4           # ostrze (taper na dole)
+  taper_height_mm: 3.0           # wysokość strefy zwężenia
+  fn: 128                        # $fn w OpenSCAD (gładkość okręgów)
