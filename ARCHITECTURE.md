@@ -218,7 +218,7 @@ Testy agentów nie dotykają prawdziwych API. `conftest.py` dostarcza fixtures.
 | `auto` | Claude→mock | real jeśli ANTHROPIC_API_KEY dostępny |
 | `dalle` | DALL-E+potrace | DALL-E 3 PNG → ImageMagick → potrace → SVG |
 
-### Faza 9 — Typ B Pipeline: Standard Base + AI Stamp 🔴 PLANOWANA (od 2026-03-15)
+### Faza 9 — Typ B Pipeline: Standard Base + AI Stamp ✅ KROKI A-K UKOŃCZONE (2026-03-15)
 
 > Decyzja architektoniczna: porzucamy DALL-E+potrace (Faza 8) na rzecz czystej
 > geometrii Python (Shapely) jako źródła prawdy. SVG = artefakt podglądu.
@@ -407,18 +407,23 @@ Unikalne siluwety (kot, pies, królik itd.):
 - Claude JSON → bardziej złożone komponenty (głowa + uszy + itd.)
 - Osobne zadanie po ustabilizowaniu Typ B
 
-#### Kolejność implementacji (sprinty)
+#### Stan implementacji (2026-03-15)
 
-| Sprint | Kroki | Czas | Efekt |
-|--------|-------|------|-------|
-| 9.1 | A + B | sesja 1 | Shapely + config gotowy |
-| 9.2 | C (base_shapes + svg_export) | sesja 2 | 8 kształtów generuje SVG |
-| 9.3 | C (scad_export + stamp_elements) | sesja 3 | OpenSCAD STL bez SVG pośredniego |
-| 9.4 | D + E (refactor agentów) | sesja 4 | Stary kod zastąpiony |
-| 9.5 | F + G + H (meta, orchestrator, CLI) | sesja 5 | End-to-end pipeline Typ B |
-| 9.6 | I (testy) | sesja 6 | CI green |
-| 9.7 | J + K (Fala 2 + 3) | sesja 7-8 | 20 baz gotowych |
-| 9.8 | L (pierwsze produkty) | sesja 9 | 10 listingów gotowych do Etsy |
+| Krok | Status | Efekt |
+|------|--------|-------|
+| A | ✅ | shapely 2.1.2 zainstalowany |
+| B | ✅ | config/base_shapes.yaml — 20 baz, 3 fale |
+| C | ✅ | src/shapes/ — base_shapes, svg_export, scad_export, stamp_elements (stub) |
+| D | ✅ | design_agent.py — usunięto DALL-E, dodano generate_type_b() |
+| E | ✅ | model_agent.py — usunięto SVGPathParser, dodano generate_type_b() |
+| F | ✅ | meta.json — pola product_subtype/base_shape/stamp_topic |
+| G | ✅ | orchestrator.py — run_pipeline_type_b() |
+| H | ✅ | cli.py — --subtype B/A, --base <shape>, --sizes S,M,L |
+| I | ✅ | 373 testów passing (test_shapes, test_model_agent, test_design_agent) |
+| J | ✅ | Tier 2: scalloped_circle, wavy_square, hexagon, octagon, heart_wide, ghost |
+| K | ✅ | Tier 3: christmas_tree, snowflake, pumpkin, bunny, easter_egg, bell |
+| L | 🟡 | Pierwsze 10 produktów Typ B — w toku |
+| M | 🔴 | Typ A pipeline (future) |
 
 ---
 
@@ -512,4 +517,4 @@ data/products/{type}/{slug}/
 
 ---
 
-*Ostatnia aktualizacja: 2026-03-15 przez Claude (architect v2) — Faza 9: plan Typ B pipeline (Shapely geometry engine, 20 standard base shapes, bez DALL-E/potrace/import(svg))*
+*Ostatnia aktualizacja: 2026-03-15 przez Claude (architect v2) — Faza 9 kroki A-K ukończone: Typ B pipeline działa end-to-end (Shapely 20 kształtów, OpenSCAD STL, CLI --subtype B, 373 testów passing)*
