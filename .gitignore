@@ -39,3 +39,9 @@ env/
 # ── Logi ─────────────────────────────────────────────────────────────────────
 logs/*.log
 logs/trend_suggestions.json
+
+# ── Dane produktów (generowane — nie commitować) ──────────────────────────────
+data/products/
+data/products_test/
+data/etsy3d.db
+data/svg_test/

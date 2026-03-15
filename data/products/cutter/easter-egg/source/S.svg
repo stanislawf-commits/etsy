@@ -1,7 +1,0 @@
-<?xml version="1.0" encoding="utf-8" ?>
-<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="60.0mm" version="1.1" viewBox="0 0 60.0 60.0" width="60.0mm">
-  <defs/>
-  <rect fill="white" height="60.0mm" width="60.0mm" x="0" y="0"/>
-  <path d="M 30.0,4.0 C 22.0,4.0 14.0,10.0 9.5,18.0 C 5.0,26.0 4.0,36.0 8.0,43.0 C 12.0,50.0 20.0,55.5 30.0,55.5 C 40.0,55.5 48.0,50.0 52.0,43.0 C 56.0,36.0 55.0,26.0 50.5,18.0 C 46.0,10.0 38.0,4.0 30.0,4.0 Z" fill="none" stroke="#1a1a1a" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5mm"/>
-  <text fill="#888888" font-family="sans-serif" font-size="3px" text-anchor="middle" x="30.0mm" y="57.599999999999994mm">easter egg | CUTTER | S</text>
-</svg>
