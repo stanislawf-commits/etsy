@@ -1,38 +1,28 @@
 """
-model_agent.py - konwertuje SVG -> STL dla produktow 3D (cuttery, stemple).
+model_agent.py — konwertuje Shapely Polygon → STL (Typ B pipeline).
 
 Tryby:
-  openscad    - generuje .scad i wywoluje openscad CLI
-  pure_python - bezposredni zapis binarnego STL (triangulacja wlasna)
-  auto        - openscad jesli dostepny, inaczej pure_python
+  openscad    - generuje .scad i wywołuje openscad CLI (via src.shapes.scad_export)
+  pure_python - bezpośredni zapis binarnego STL (własna triangulacja)
+  auto        - openscad jeśli dostępny, inaczej pure_python
 
-Walidacja STL:
-  - Podstawowa (format binarny, rozmiar pliku) — zawsze
-  - trimesh (watertight, objętość, normalne) — gdy trimesh zainstalowany
-
-Interfejs:
+Interfejs Typ B:
   agent = create_model_agent('auto')
-  result = agent.generate(svg_path, product_type, size_key, output_dir)
+  result = agent.generate_type_b(base_poly, size_mm, product_type, output_dir)
 
 Uruchomienie standalone:
   python3 src/agents/model_agent.py
 """
 
-import json
 import logging
 import math
-import pathlib
-import re
 import struct
 import subprocess
-import tempfile
 from pathlib import Path
 
 from src.utils.config_loader import cfg
 
 log = logging.getLogger(__name__)
-
-BEZIER_SAMPLES = 32  # samples per Bézier curve segment (higher = smoother edges)
 
 
 def _cutter_cfg() -> dict:
@@ -64,382 +54,6 @@ SIZE_MM: dict = {
     "XXL": 120.0,
     "XXXL":150.0,
 }
-
-
-# ── SVGPathParser ──────────────────────────────────────────────────────────────
-
-class SVGPathParser:
-    """Parsuje elementy SVG -> lista konturow jako punkty (x, y) w mm."""
-
-    def parse(self, svg_content: str) -> list:
-        scale = self._extract_scale(svg_content)
-        contours = []
-
-        for d_attr in re.findall(r'<path[^>]+\bd="([^"]+)"', svg_content, re.IGNORECASE):
-            contours.extend(self._parse_d(d_attr, scale))
-
-        for pts_attr in re.findall(r'<polygon[^>]+\bpoints="([^"]+)"', svg_content, re.IGNORECASE):
-            pts = self._parse_points_attr(pts_attr, scale)
-            if len(pts) >= 3:
-                contours.append(pts)
-
-        for pts_attr in re.findall(r'<polyline[^>]+\bpoints="([^"]+)"', svg_content, re.IGNORECASE):
-            pts = self._parse_points_attr(pts_attr, scale)
-            if len(pts) >= 2:
-                contours.append(pts)
-
-        for m in re.finditer(r'<circle([^>]+)>', svg_content, re.IGNORECASE):
-            attrs = m.group(1)
-            cx = self._attr_float(attrs, "cx", 0.0) * scale
-            cy = self._attr_float(attrs, "cy", 0.0) * scale
-            r  = self._attr_float(attrs, "r",  0.0) * scale
-            if r > 0:
-                contours.append(self._circle_points(cx, cy, r))
-
-        for m in re.finditer(r'<ellipse([^>]+)>', svg_content, re.IGNORECASE):
-            attrs = m.group(1)
-            cx = self._attr_float(attrs, "cx", 0.0) * scale
-            cy = self._attr_float(attrs, "cy", 0.0) * scale
-            rx = self._attr_float(attrs, "rx", 0.0) * scale
-            ry = self._attr_float(attrs, "ry", 0.0) * scale
-            if rx > 0 and ry > 0:
-                contours.append(self._ellipse_points(cx, cy, rx, ry))
-
-        for m in re.finditer(r'<rect([^>]+)>', svg_content, re.IGNORECASE):
-            attrs = m.group(1)
-            tag = m.group(0)
-            if 'fill="white"' in tag or "fill='white'" in tag:
-                continue
-            x = self._attr_float(attrs, "x",      0.0) * scale
-            y = self._attr_float(attrs, "y",      0.0) * scale
-            w = self._attr_float(attrs, "width",  0.0) * scale
-            h = self._attr_float(attrs, "height", 0.0) * scale
-            if w > 0 and h > 0:
-                contours.append([(x, y), (x+w, y), (x+w, y+h), (x, y+h)])
-
-        # Usuń zamykający duplikat: jeśli ostatni punkt == pierwszy, usuń go
-        cleaned = []
-        for c in contours:
-            if len(c) >= 3 and c[-1] == c[0]:
-                c = c[:-1]
-            if len(c) >= 3:
-                cleaned.append(c)
-        return cleaned
-
-    def _extract_scale(self, svg_content: str) -> float:
-        m_vb = re.search(r'viewBox="([^"]+)"', svg_content, re.IGNORECASE)
-        m_w  = re.search(r'\bwidth="([\d.]+)mm"', svg_content, re.IGNORECASE)
-        if m_vb and m_w:
-            parts = m_vb.group(1).split()
-            if len(parts) == 4:
-                vb_w = float(parts[2])
-                w_mm = float(m_w.group(1))
-                if vb_w > 0:
-                    return w_mm / vb_w
-        return 1.0
-
-    def _attr_float(self, attrs: str, name: str, default: float) -> float:
-        m = re.search(rf'\b{name}="([\d.+-]+)"', attrs)
-        return float(m.group(1)) if m else default
-
-    def _parse_points_attr(self, pts_str: str, scale: float) -> list:
-        nums = [float(x) for x in re.split(r'[\s,]+', pts_str.strip()) if x]
-        return [(nums[i]*scale, nums[i+1]*scale) for i in range(0, len(nums)-1, 2)]
-
-    def _circle_points(self, cx: float, cy: float, r: float, n: int = 32) -> list:
-        return [(cx + r*math.cos(2*math.pi*i/n), cy + r*math.sin(2*math.pi*i/n)) for i in range(n)]
-
-    def _ellipse_points(self, cx: float, cy: float, rx: float, ry: float, n: int = 32) -> list:
-        return [(cx + rx*math.cos(2*math.pi*i/n), cy + ry*math.sin(2*math.pi*i/n)) for i in range(n)]
-
-    def _parse_d(self, d: str, scale: float) -> list:
-        contours = []
-        current = []
-        x = y = x0 = y0 = 0.0
-        tokens = re.findall(
-            r'[MLHVCSQTAZmlhvcsqtaz]|[-+]?[0-9]*\.?[0-9]+(?:[eE][-+]?[0-9]+)?', d
-        )
-        i = 0
-        cmd = 'M'
-
-        def consume(n):
-            nonlocal i
-            vals = [float(tokens[i+k]) for k in range(n)]
-            i += n
-            return vals
-
-        while i < len(tokens):
-            t = tokens[i]
-            if t.isalpha():
-                cmd = t
-                i += 1
-                continue
-
-            if cmd in ('M', 'm'):
-                if current:
-                    contours.append(current)
-                    current = []
-                dx, dy = consume(2)
-                if cmd == 'm':
-                    x += dx; y += dy
-                else:
-                    x, y = dx, dy
-                x0, y0 = x, y
-                current.append((x * scale, y * scale))
-                cmd = 'l' if cmd == 'm' else 'L'
-
-            elif cmd in ('L', 'l'):
-                dx, dy = consume(2)
-                if cmd == 'l':
-                    x += dx; y += dy
-                else:
-                    x, y = dx, dy
-                current.append((x * scale, y * scale))
-
-            elif cmd in ('H', 'h'):
-                v, = consume(1)
-                x = x + v if cmd == 'h' else v
-                current.append((x * scale, y * scale))
-
-            elif cmd in ('V', 'v'):
-                v, = consume(1)
-                y = y + v if cmd == 'v' else v
-                current.append((x * scale, y * scale))
-
-            elif cmd in ('C', 'c'):
-                vals = consume(6)
-                if cmd == 'c':
-                    x1, y1 = x+vals[0], y+vals[1]
-                    x2, y2 = x+vals[2], y+vals[3]
-                    ex, ey = x+vals[4], y+vals[5]
-                else:
-                    x1, y1 = vals[0], vals[1]
-                    x2, y2 = vals[2], vals[3]
-                    ex, ey = vals[4], vals[5]
-                for k in range(1, BEZIER_SAMPLES + 1):
-                    tk = k / BEZIER_SAMPLES
-                    bx = (1-tk)**3*x + 3*(1-tk)**2*tk*x1 + 3*(1-tk)*tk**2*x2 + tk**3*ex
-                    by = (1-tk)**3*y + 3*(1-tk)**2*tk*y1 + 3*(1-tk)*tk**2*y2 + tk**3*ey
-                    current.append((bx * scale, by * scale))
-                x, y = ex, ey
-
-            elif cmd in ('Q', 'q'):
-                vals = consume(4)
-                if cmd == 'q':
-                    cx_, cy_ = x+vals[0], y+vals[1]
-                    ex, ey   = x+vals[2], y+vals[3]
-                else:
-                    cx_, cy_ = vals[0], vals[1]
-                    ex, ey   = vals[2], vals[3]
-                for k in range(1, BEZIER_SAMPLES + 1):
-                    tk = k / BEZIER_SAMPLES
-                    bx = (1-tk)**2*x + 2*(1-tk)*tk*cx_ + tk**2*ex
-                    by = (1-tk)**2*y + 2*(1-tk)*tk*cy_ + tk**2*ey
-                    current.append((bx * scale, by * scale))
-                x, y = ex, ey
-
-            elif cmd in ('A', 'a'):
-                vals = consume(7)
-                rx_a, ry_a, rot_a, large, sweep, ex, ey = vals
-                if cmd == 'a':
-                    ex += x; ey += y
-                pts = self._arc_pts(x, y, rx_a, ry_a, rot_a,
-                                    int(large), int(sweep), ex, ey)
-                current.extend(pts)
-                x, y = ex, ey
-
-            elif cmd in ('Z', 'z'):
-                if current and len(current) >= 3:
-                    contours.append(current)
-                current = []
-                x, y = x0, y0
-
-            else:
-                i += 1
-
-        if current and len(current) >= 3:
-            contours.append(current)
-        return contours
-
-    def _arc_pts(self, x1: float, y1: float, rx: float, ry: float,
-                 phi_deg: float, large_arc: int, sweep: int,
-                 x2: float, y2: float, n: int = 24) -> list:
-        """Prawdziwa konwersja luku SVG na punkty (SVG spec endpoint->center)."""
-        if rx < 1e-9 or ry < 1e-9:
-            return [(x2, y2)]
-        phi = math.radians(phi_deg)
-        cp, sp = math.cos(phi), math.sin(phi)
-        dx, dy = (x1 - x2) / 2, (y1 - y2) / 2
-        x1p =  cp * dx + sp * dy
-        y1p = -sp * dx + cp * dy
-        x1p2, y1p2 = x1p * x1p, y1p * y1p
-        rx2, ry2 = rx * rx, ry * ry
-        lam = x1p2 / rx2 + y1p2 / ry2
-        if lam > 1:
-            sq = math.sqrt(lam)
-            rx *= sq; ry *= sq
-            rx2, ry2 = rx * rx, ry * ry
-        num = max(0.0, rx2 * ry2 - rx2 * y1p2 - ry2 * x1p2)
-        den = rx2 * y1p2 + ry2 * x1p2
-        sq  = math.sqrt(num / den) if den > 1e-12 else 0.0
-        if large_arc == sweep:
-            sq = -sq
-        cxp =  sq * rx * y1p / ry
-        cyp = -sq * ry * x1p / rx
-        cx = cp * cxp - sp * cyp + (x1 + x2) / 2
-        cy = sp * cxp + cp * cyp + (y1 + y2) / 2
-
-        def _angle(ux, uy, vx, vy):
-            n_ = math.sqrt(ux*ux + uy*uy) * math.sqrt(vx*vx + vy*vy)
-            if n_ < 1e-12:
-                return 0.0
-            c = max(-1.0, min(1.0, (ux*vx + uy*vy) / n_))
-            a = math.acos(c)
-            return -a if ux * vy - uy * vx < 0 else a
-
-        ux, uy = (x1p - cxp) / rx, (y1p - cyp) / ry
-        vx, vy = (-x1p - cxp) / rx, (-y1p - cyp) / ry
-        theta1 = _angle(1.0, 0.0, ux, uy)
-        dtheta = _angle(ux, uy, vx, vy)
-        if sweep == 0 and dtheta > 0:
-            dtheta -= 2 * math.pi
-        elif sweep == 1 and dtheta < 0:
-            dtheta += 2 * math.pi
-
-        pts = []
-        for i in range(1, n + 1):
-            t = theta1 + dtheta * i / n
-            px = cp * rx * math.cos(t) - sp * ry * math.sin(t) + cx
-            py = sp * rx * math.cos(t) + cp * ry * math.sin(t) + cy
-            pts.append((px, py))
-        return pts
-
-
-# ── OpenSCADGenerator ─────────────────────────────────────────────────────────
-
-class OpenSCADGenerator:
-    """Generuje kod .scad dla cutterow i stempli."""
-
-    def generate_scad(self, contours: list, product_type: str,
-                      size_mm: float, slug: str, svg_path: str = "") -> str:
-        norm = self._normalize(contours, size_mm)
-        n = len(contours)
-        if product_type == "stamp":
-            return self._scad_stamp(norm, slug, size_mm, svg_path)
-        elif product_type == "combo":
-            return (self._scad_cutter(norm, slug, size_mm, svg_path, n)
-                    + "\n" + self._scad_stamp(norm, slug, size_mm, svg_path))
-        else:
-            return self._scad_cutter(norm, slug, size_mm, svg_path, n)
-
-    def _normalize(self, contours: list, size_mm: float) -> list:
-        all_pts = [p for c in contours for p in c]
-        if not all_pts:
-            return contours
-        xs = [p[0] for p in all_pts]
-        ys = [p[1] for p in all_pts]
-        min_x, max_x = min(xs), max(xs)
-        min_y, max_y = min(ys), max(ys)
-        span = max(max_x - min_x, max_y - min_y) or 1.0
-        sc = size_mm * 0.90 / span
-        cx = (min_x + max_x) / 2
-        cy = (min_y + max_y) / 2
-        return [[ ((p[0]-cx)*sc, (p[1]-cy)*sc) for p in c ] for c in contours]
-
-    def _single_polygon(self, contour: list) -> str:
-        pts_str = ", ".join(f"[{p[0]:.4f},{p[1]:.4f}]" for p in contour)
-        return f"polygon(points=[{pts_str}]);"
-
-    def _union_extrude(self, contours: list, height: float, offset_r: float = 0.0,
-                       z_offset: float = 0.0) -> str:
-        """Generuje union() { linear_extrude... } dla kazdego konturu osobno."""
-        lines = []
-        if z_offset:
-            lines.append(f"translate([0,0,{z_offset}])")
-        lines.append("union() {")
-        for c in contours:
-            poly = self._single_polygon(c)
-            if offset_r != 0.0:
-                lines.append(f"  linear_extrude(height={height})"
-                             f" {{ offset(r={offset_r}) {{ {poly} }} }}")
-            else:
-                lines.append(f"  linear_extrude(height={height}) {{ {poly} }}")
-        lines.append("}")
-        return "\n".join(lines)
-
-    def _scad_cutter(self, contours: list, slug: str,
-                     size_mm: float, svg_path: str, n_subpaths: int) -> str:
-        svg_abs = str(Path(svg_path).resolve()) if svg_path else ""
-
-        if not svg_abs:
-            # fallback — stary kod
-            body   = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=WALL_THICK_MM)
-            hollow = self._union_extrude(contours, TOTAL_HEIGHT_MM, offset_r=-CUTTING_EDGE_MM,
-                                         z_offset=BASE_THICK_MM)
-            base   = self._union_extrude(contours, BASE_THICK_MM,   offset_r=WALL_THICK_MM)
-            return f"$fn=64;\ndifference() {{\n  {body}\n  {hollow}\n}}\n{base}\n"
-
-        if n_subpaths <= 3:
-            # TYP A — organiczny cutter: offset zewnętrznej ścieżki SVG
-            half = size_mm / 2
-            margin  = 3.0
-            wall    = WALL_THICK_MM
-            return (
-                f'$fn=128;\n'
-                f'// cutter TYP A (prosty) {slug} {size_mm}mm n={n_subpaths}\n'
-                f'difference() {{\n'
-                f'  linear_extrude(height={TOTAL_HEIGHT_MM})\n'
-                f'    offset(r={margin + wall})\n'
-                f'      translate([-{half},-{half}])\n'
-                f'        import("{svg_abs}", center=false);\n'
-                f'  translate([0,0,-0.1])\n'
-                f'  linear_extrude(height={TOTAL_HEIGHT_MM + 0.2})\n'
-                f'    offset(r={margin})\n'
-                f'      translate([-{half},-{half}])\n'
-                f'        import("{svg_abs}", center=false);\n'
-                f'}}\n'
-            )
-        else:
-            # TYP B — złożony wzór: zaokrąglony prostokąt jako kontener
-            box   = size_mm + 12.0
-            r_out = 8.0
-            wall  = WALL_THICK_MM
-            r_in  = max(r_out - wall, 1.0)
-            return (
-                f'$fn=128;\n'
-                f'// cutter TYP B (złożony) {slug} {size_mm}mm n={n_subpaths}\n'
-                f'module rr(w,h,r) {{ offset(r=r) offset(r=-r) square([w,h],center=true); }}\n'
-                f'difference() {{\n'
-                f'  linear_extrude(height={TOTAL_HEIGHT_MM})\n'
-                f'    rr({box},{box},{r_out});\n'
-                f'  translate([0,0,-0.1])\n'
-                f'  linear_extrude(height={TOTAL_HEIGHT_MM + 0.2})\n'
-                f'    rr({box - wall*2},{box - wall*2},{r_in});\n'
-                f'}}\n'
-            )
-
-    def _scad_stamp(self, contours: list, slug: str,
-                    size_mm: float, svg_path: str) -> str:
-        svg_abs = str(Path(svg_path).resolve()) if svg_path else ""
-        half = size_mm / 2
-
-        if svg_abs:
-            return (
-                f'$fn=64;\n'
-                f'// stamp {slug} {size_mm}mm\n'
-                f'// base\n'
-                f'translate([-{half},{-half},0])\n'
-                f'  cube([{size_mm},{size_mm},{BASE_THICK_MM}]);\n'
-                f'// relief\n'
-                f'translate([-{half},{-half},{BASE_THICK_MM}])\n'
-                f'  linear_extrude(height={RELIEF_HEIGHT_MM})\n'
-                f'    import("{svg_abs}", center=false);\n'
-            )
-        else:
-            # fallback — stary kod bez svg_path
-            base   = self._union_extrude(contours, BASE_THICK_MM,    offset_r=WALL_THICK_MM)
-            relief = self._union_extrude(contours, RELIEF_HEIGHT_MM,  z_offset=BASE_THICK_MM)
-            return f"$fn=64;\n// Stamp fallback: {slug}\n{base}\n{relief}\n"
 
 
 # ── PurePythonSTLWriter ───────────────────────────────────────────────────────
@@ -841,13 +455,11 @@ class STLValidator:
 # ── ModelAgent ────────────────────────────────────────────────────────────────
 
 class ModelAgent:
-    """Glowny agent: SVG -> STL."""
+    """Główny agent: Shapely Polygon → STL (Typ B pipeline)."""
 
     def __init__(self, config: dict = None):
         self.config     = config or {}
         self.mode       = self._detect_mode()
-        self.parser     = SVGPathParser()
-        self.scad_gen   = OpenSCADGenerator()
         self.stl_writer = PurePythonSTLWriter()
         self.validator  = STLValidator()
         log.info("ModelAgent mode: %s", self.mode)
@@ -864,49 +476,62 @@ class ModelAgent:
             pass
         return "pure_python"
 
-    def generate(self, svg_path: Path, product_type: str, size_key: str, output_dir: Path) -> dict:
-        svg_path   = Path(svg_path)
+    def generate_type_b(
+        self,
+        base_poly,
+        size_mm: float,
+        product_type: str,
+        output_dir: Path,
+        size_key: str = "",
+        stamp_poly=None,
+    ) -> dict:
+        """
+        Generuje STL dla produktu Typ B z Shapely Polygon.
+
+        Args:
+            base_poly:    Shapely Polygon bazy (z get_base())
+            size_mm:      Wymiar w mm
+            product_type: 'cutter' | 'stamp'
+            output_dir:   Katalog wyjściowy STL
+            size_key:     Opcjonalny klucz rozmiaru (S/M/L/XL) — do nazwy pliku
+            stamp_poly:   Shapely Polygon wzoru stempla (wymagany gdy product_type='stamp')
+
+        Returns:
+            {'stl_path': str, 'valid': bool, 'n_triangles': int, 'size_mm': float, ...}
+        """
+        from src.shapes.scad_export import cutter_scad, stamp_scad, run_openscad
+
         output_dir = Path(output_dir)
-        size_key   = size_key.upper()
-        # Wymiary z config (fallback do stałych)
-        size_map   = _size_mm_map()
-        size_mm    = size_map.get(size_key, SIZE_MM.get(size_key, 75.0))
-        slug       = svg_path.stem
-
-        if not svg_path.exists():
-            return {"stl_path": None, "valid": False, "n_triangles": 0,
-                    "error": f"SVG not found: {svg_path}"}
-
-        svg_content = svg_path.read_text(encoding="utf-8", errors="replace")
-        contours = self.parser.parse(svg_content)
-
-        if not contours:
-            return {"stl_path": None, "valid": False, "n_triangles": 0,
-                    "error": "No contours parsed from SVG"}
-
-        main_contour = max(contours, key=len)
-        stl_name = f"{size_key}_{product_type}.stl"
-        stl_path = output_dir / stl_name
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        # Pobierz parametry z product_types.yaml lub użyj stałych jako fallback
-        pt_cfg = _cutter_cfg() if product_type != "stamp" else _stamp_cfg()
-        model_cfg = {
-            "total_height":  float(pt_cfg.get("total_height",   TOTAL_HEIGHT_MM)),
-            "base_thick":    float(pt_cfg.get("base_height",    BASE_THICK_MM)),
-            "wall_thick":    float(pt_cfg.get("wall_thickness", WALL_THICK_MM)),
-            "cutting_edge":  float(pt_cfg.get("blade_thickness", CUTTING_EDGE_MM)),
-            "relief_height": float(pt_cfg.get("relief_height",  RELIEF_HEIGHT_MM)),
-            "taper_height":  float(pt_cfg.get("taper_height",   3.0)),
-            "fillet_top":    float(pt_cfg.get("fillet_top",     1.0)),
-        }
+        prefix = f"{size_key}_" if size_key else ""
+        stl_path = output_dir / f"{prefix}{product_type}.stl"
+
+        model_cfg = self._stl_cfg_for_pure_python()
 
         if self.mode == "openscad":
-            n_tri = self._generate_via_openscad(contours, product_type, size_mm, slug, stl_path, svg_path=svg_path)
-        elif product_type == "stamp":
-            n_tri = self.stl_writer.generate_stamp_stl(main_contour, model_cfg, stl_path)
+            if product_type == "stamp":
+                if stamp_poly is None:
+                    return {"stl_path": None, "valid": False, "n_triangles": 0,
+                            "error": "stamp_poly required for product_type='stamp'"}
+                scad = stamp_scad(base_poly, stamp_poly, size_mm)
+            else:
+                scad = cutter_scad(base_poly, size_mm)
+            ok = run_openscad(scad, stl_path)
+            if not ok:
+                return {"stl_path": None, "valid": False, "n_triangles": 0,
+                        "error": "OpenSCAD failed — check openscad CLI"}
+            n_tri = self._count_stl_triangles(stl_path)
         else:
-            n_tri = self.stl_writer.generate_cutter_stl(main_contour, model_cfg, stl_path)
+            contour = list(base_poly.exterior.coords)[:-1]
+            if product_type == "stamp":
+                if stamp_poly is None:
+                    return {"stl_path": None, "valid": False, "n_triangles": 0,
+                            "error": "stamp_poly required for product_type='stamp'"}
+                stamp_contour = list(stamp_poly.exterior.coords)[:-1]
+                n_tri = self.stl_writer.generate_stamp_stl(stamp_contour, model_cfg, stl_path)
+            else:
+                n_tri = self.stl_writer.generate_cutter_stl(contour, model_cfg, stl_path)
 
         result = self.validator.validate(stl_path, model_cfg)
         result["stl_path"]    = str(stl_path)
@@ -914,75 +539,83 @@ class ModelAgent:
         result["size_mm"]     = size_mm
         return result
 
-    def generate_all(self, slug: str, source_dir: Path, output_dir: Path,
-                     product_type: str | None = None) -> dict:
-        """Generuje cutter + stamp STL dla wszystkich znalezionych rozmiarów SVG.
-
-        Szuka {SIZE}.svg w source_dir (np. S.svg, M.svg, L.svg).
-        Dla każdego rozmiaru generuje {SIZE}_cutter.stl i {SIZE}_stamp.stl
-        (chyba że podano product_type — wtedy tylko ten jeden typ).
-
-        Returns:
-            {
-                "slug": ...,
-                "stl_files": [...valid stl paths...],
-                "sizes": {
-                    "M": {"cutter": {valid, stl_path, ...}, "stamp": {...}},
-                    ...
-                }
-            }
+    def generate_type_b_all(
+        self,
+        base_poly,
+        slug: str,
+        output_dir: Path,
+        sizes: dict[str, float] | None = None,
+        product_type: str | None = None,
+        stamp_poly=None,
+    ) -> dict:
         """
-        source_dir = Path(source_dir)
-        output_dir = Path(output_dir)
-        size_map = _size_mm_map()
-        ptypes = [product_type] if product_type else ["cutter", "stamp"]
+        Generuje STL dla wszystkich rozmiarów (Typ B).
+
+        Args:
+            base_poly:    Shapely Polygon bazy (zostanie przeskalowany do każdego rozmiaru)
+            slug:         Slug produktu
+            output_dir:   Katalog bazowy (slug/stl/ zostanie utworzony)
+            sizes:        {size_key: size_mm} — domyślnie z product_types.yaml
+            product_type: 'cutter' | 'stamp' | None (obydwa)
+            stamp_poly:   Wymagany gdy product_type='stamp'
+        """
+        from src.shapes.base_shapes import get_base
+        from src.shapes import affinity  # noqa — sprawdzamy dostępność
+
+        sizes = sizes or _size_mm_map()
+        ptypes = [product_type] if product_type else ["cutter"]
+        stl_dir = Path(output_dir) / slug / "stl"
+
         sizes_result: dict = {}
         all_stl_files: list[str] = []
 
-        for size_key in size_map:
-            size_lower = size_key.lower()
-            candidates = [
-                source_dir / f"{size_key}.svg",
-                source_dir / f"{size_lower}.svg",
-                source_dir / f"{slug}-{size_key}.svg",
-                source_dir / f"{slug}_{size_key}.svg",
-                source_dir / f"{slug}-{size_lower}.svg",
-                source_dir / f"design_{size_lower}.svg",
-            ]
-            svg_path = next((p for p in candidates if p.exists()), None)
-            if svg_path is None:
-                continue
-            log.info("Processing %s -> %s (%s)", svg_path.name, size_key, "+".join(ptypes))
+        for size_key, size_mm in sizes.items():
+            # Przeskaluj polygon do konkretnego rozmiaru
+            # Wyznaczamy nazwę kształtu z pierwotnego poly — używamy jego bounding box
+            from shapely import affinity as _aff
+            b = base_poly.bounds
+            current_size = max(b[2] - b[0], b[3] - b[1])
+            if current_size > 1e-9:
+                sc = size_mm / current_size
+                scaled_poly = _aff.scale(base_poly, xfact=sc, yfact=sc, origin=(0, 0))
+            else:
+                scaled_poly = base_poly
+
             sizes_result[size_key] = {}
             for ptype in ptypes:
-                r = self.generate(svg_path, ptype, size_key, output_dir)
+                r = self.generate_type_b(
+                    scaled_poly, size_mm, ptype, stl_dir,
+                    size_key=size_key, stamp_poly=stamp_poly
+                )
                 sizes_result[size_key][ptype] = r
                 if r.get("valid") and r.get("stl_path"):
-                    all_stl_files.append(str(r["stl_path"]))
+                    all_stl_files.append(r["stl_path"])
+                log.info("[%s/%s] %s  tri=%s",
+                         size_key, ptype,
+                         "OK" if r.get("valid") else "FAIL",
+                         r.get("n_triangles", 0))
 
         return {"slug": slug, "stl_files": all_stl_files, "sizes": sizes_result}
 
-    def _generate_via_openscad(self, contours, product_type, size_mm, slug, stl_path, svg_path="") -> int:
-        scad_code = self.scad_gen.generate_scad(
-            contours, product_type, size_mm, slug, svg_path=str(svg_path)
-        )
-        with tempfile.NamedTemporaryFile(suffix=".scad", mode="w", delete=False) as f:
-            f.write(scad_code)
-            scad_path = f.name
-        try:
-            subprocess.run(
-                ["openscad", "--export-format", "binstl",
-                 "-o", str(stl_path), scad_path],
-                capture_output=True, timeout=120, check=True,
-            )
-        finally:
-            pathlib.Path(scad_path).unlink(missing_ok=True)
-        if stl_path.exists() and stl_path.stat().st_size > 84:
-            data = stl_path.read_bytes()
-            if data[:5].lower() == b"solid":
-                return data.decode("ascii", errors="replace").count("facet normal")
-            return struct.unpack("<I", data[80:84])[0]
-        return 0
+    def _stl_cfg_for_pure_python(self) -> dict:
+        """Mapuje stl_defaults (base_shapes.yaml) na klucze PurePythonSTLWriter."""
+        d = cfg("base_shapes").get("stl_defaults", {})
+        return {
+            "total_height":  d.get("total_height_mm",   TOTAL_HEIGHT_MM),
+            "base_thick":    d.get("base_thick_mm",      BASE_THICK_MM),
+            "wall_thick":    d.get("wall_thick_mm",      WALL_THICK_MM),
+            "cutting_edge":  d.get("cutting_edge_mm",    CUTTING_EDGE_MM),
+            "relief_height": d.get("relief_height_mm",   RELIEF_HEIGHT_MM),
+            "taper_height":  d.get("taper_height_mm",    3.0),
+        }
+
+    def _count_stl_triangles(self, stl_path: Path) -> int:
+        if not stl_path.exists() or stl_path.stat().st_size < 84:
+            return 0
+        data = stl_path.read_bytes()
+        if data[:5].lower() == b"solid":
+            return data.decode("ascii", errors="replace").count("facet normal")
+        return struct.unpack("<I", data[80:84])[0]
 
 
 # ── factory ───────────────────────────────────────────────────────────────────
@@ -1004,32 +637,22 @@ def create_model_agent(mode: str = "auto") -> ModelAgent:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 
-    DATA_DIR   = Path(__file__).parents[2] / "data" / "products"
-    slug       = "floral-wreath-cutter"
-    source_dir = DATA_DIR / slug / "source"
-    output_dir = DATA_DIR / slug / "stl"
+    from src.shapes.base_shapes import get_base
 
-    print(f"\nModelAgent standalone test")
-    print(f"  slug:       {slug}")
-    print(f"  source_dir: {source_dir}")
-    print(f"  output_dir: {output_dir}")
+    DATA_DIR = Path(__file__).parents[2] / "data" / "products"
+    slug     = "heart-test"
+    poly     = get_base("heart", 75.0)
 
+    print(f"\nModelAgent Typ B standalone test — {slug}")
     agent  = create_model_agent("pure_python")
-    result = agent.generate_all(
-        slug=slug,
+    result = agent.generate_type_b(
+        base_poly=poly,
+        size_mm=75.0,
         product_type="cutter",
-        source_dir=source_dir,
-        output_dir=output_dir,
+        output_dir=DATA_DIR / slug / "stl",
+        size_key="M",
     )
-
-    sizes = result.get("sizes", {})
-    if not sizes:
-        print("\nERROR: Brak wynikow — sprawdz czy SVG istnieja w source_dir")
-    else:
-        print(f"\nWyniki ({len(sizes)} rozmiarow):")
-        for size_key, r in sizes.items():
-            status = "OK" if r.get("valid") else "FAIL"
-            n_tri  = r.get("n_triangles", 0)
-            path   = r.get("stl_path", "-")
-            err    = r.get("error") or ""
-            print(f"  [{size_key}] {status:4s}  triangles={n_tri:6d}  {path}  {err}")
+    status = "OK" if result.get("valid") else "FAIL"
+    print(f"  [{status}] triangles={result.get('n_triangles',0)}  {result.get('stl_path','-')}")
+    if result.get("error"):
+        print(f"  ERROR: {result['error']}")
