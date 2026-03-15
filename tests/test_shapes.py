@@ -2,7 +2,7 @@
 test_shapes.py — testy src/shapes/ (geometry engine Typ B).
 
 Pokrywa:
-  - base_shapes: get_base(), list_bases() — wszystkie Tier 1
+  - base_shapes: get_base(), list_bases() — wszystkie Tier 1/2/3
   - svg_export:  base_to_svg(), poly_to_path_d()
   - scad_export: cutter_scad(), stamp_scad(), _poly_points()
 """
@@ -18,6 +18,9 @@ from src.shapes.scad_export import cutter_scad, stamp_scad, _poly_points
 
 
 TIER1 = ["heart", "circle", "rectangle", "squircle", "star5", "arch", "oval", "cloud"]
+TIER2 = ["scalloped_circle", "wavy_square", "hexagon", "octagon", "heart_wide", "ghost"]
+TIER3 = ["christmas_tree", "snowflake", "pumpkin", "bunny", "easter_egg", "bell"]
+ALL_SHAPES = TIER1 + TIER2 + TIER3
 
 
 # ── list_bases ────────────────────────────────────────────────────────────────
@@ -228,3 +231,48 @@ def test_cutter_scad_all_tier1(name):
     scad = cutter_scad(poly, 75.0)
     assert len(scad) > 200
     assert "polygon(points=" in scad
+
+
+# ── Tier 2 + 3 — walidacja geometrii ─────────────────────────────────────────
+
+@pytest.mark.parametrize("name", TIER2)
+def test_get_base_tier2_valid(name):
+    """Tier 2 shapes zwracają poprawny Polygon skalowany do 75mm."""
+    poly = get_base(name, 75.0)
+    assert isinstance(poly, Polygon)
+    assert poly.is_valid
+    assert not poly.is_empty
+    b = poly.bounds
+    max_dim = max(b[2] - b[0], b[3] - b[1])
+    assert abs(max_dim - 75.0) < 0.5, f"{name}: max_dim={max_dim:.2f}"
+
+
+@pytest.mark.parametrize("name", TIER3)
+def test_get_base_tier3_valid(name):
+    """Tier 3 shapes zwracają poprawny Polygon skalowany do 75mm."""
+    poly = get_base(name, 75.0)
+    assert isinstance(poly, Polygon)
+    assert poly.is_valid
+    assert not poly.is_empty
+    b = poly.bounds
+    max_dim = max(b[2] - b[0], b[3] - b[1])
+    assert abs(max_dim - 75.0) < 0.5, f"{name}: max_dim={max_dim:.2f}"
+
+
+@pytest.mark.parametrize("name", ALL_SHAPES)
+def test_get_base_all_centered(name):
+    """Wszystkie 20 shapes wyśrodkowane w (0,0)."""
+    poly = get_base(name, 75.0)
+    b = poly.bounds
+    cx = (b[0] + b[2]) / 2
+    cy = (b[1] + b[3]) / 2
+    assert abs(cx) < 1.0, f"{name}: cx={cx:.2f}"
+    assert abs(cy) < 1.0, f"{name}: cy={cy:.2f}"
+
+
+@pytest.mark.parametrize("name", TIER2 + TIER3)
+def test_get_base_tier23_svg(tmp_path, name):
+    """Tier 2+3 shapes zapisują się jako poprawny SVG."""
+    poly = get_base(name, 75.0)
+    out = base_to_svg(poly, tmp_path / f"{name}.svg", 75.0)
+    assert out.exists() and out.stat().st_size > 50
